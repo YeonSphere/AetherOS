@@ -1,0 +1,65 @@
+# Rust specific
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Build output
+/build/
+/dist/
+/out/
+
+# Debug files
+*.pdb
+*.dSYM/
+
+# Environment files
+.env
+.env.local
+.env.*
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+
+# Dependencies
+/node_modules/
+
+# Testing
+/coverage/
+
+# Documentation generated
+/doc/
+/docs/generated/
+
+# OS specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.bak
+
+# AetherOS specific
+*.iso
+*.img
+*.bin
+*.elf
+*.o
+*.d
+*.map

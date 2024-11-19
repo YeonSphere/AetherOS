@@ -1,31 +1,63 @@
 YeonSphere Universal Open Source License (YUOSL)
 
-Copyright (c) 2024 Dae Sanghwi (@daedaevibin) and YeonSphere
+Copyright (c) 2024 Jeremy Matlock (@daedaevibin)
+All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, subject to the following conditions:
+About This License:
+This is an open-source license designed to encourage collaboration while ensuring fair use. YeonSphere projects are meant to be accessible and beneficial to the community.
 
-1. The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+Legal Identity:
+- Jeremy Matlock (@daedaevibin/Dae Sanghwi) is the creator and owner of this software
+- YeonSphere is a project namespace, not a legal entity
 
-2. Any redistribution, commercial use, or derivative works based on this Software require explicit permission from @daedaevibin on GitHub.
+Terms of Use:
+You are free to use, modify, and share this software provided you:
 
-3. Modifications to the Software must be clearly marked as such and must not be misrepresented as the original software.
+1. Attribution
+   - Keep this license and copyright notice in all copies
+   - Credit the original author (@daedaevibin/Jeremy Matlock)
+   - Clearly state if you've modified the software
 
-4. Users acknowledge that this Software is in active development. Users accept all risks associated with the use of the Software.
+2. Commercial Use
+   - Free for revenue up to $50,000 annually
+   - Above $50,000: 5% revenue share with creator
+   - Revenue sharing can be adjusted through friendly discussion
+   - Just reach out to discuss terms that work for both parties
+   - Please allow up to 30 days for response to any inquiries
+   - Existing terms remain valid during discussion period
 
-5. This Software and its users are protected by all applicable laws regarding the right to employ privacy-enhancing technologies, content filtering, and similar tools. No entity can hold the Software, its creators, or its users liable for any conflicts arising from the use of such features.
+3. Modifications & Distribution
+   - You can modify and distribute the software
+   - Share your improvements with the community if possible
+   - Keep it open source
+   - Don't claim it as entirely your own work
 
-6. This Software is not intended for use by any entities that engage in practices restricting user freedoms related to privacy, content filtering, or similar technologies. Use of this Software cannot be considered a violation of any terms of service or be subject to claims of circumvention of technological measures.
+4. Patents & Commercial Rights
+   - Contact creator for patent use
+   - Commercial rights negotiable
+   - Flexible terms available through discussion
+   - Allow 30 days for response to requests
+   - Continue current use while awaiting response
 
-7. The rights granted herein are universally applicable and cannot be invalidated by any policies that may restrict user freedoms related to privacy, content filtering, or similar services. Users are responsible for ensuring their use of this Software complies with their local laws and regulations.
+5. Warranty & Liability
+   - Software provided "as is"
+   - No warranty of any kind
+   - Use at your own discretion
 
-8. This license explicitly preserves and protects the right of users to employ privacy-enhancing technologies, content filtering, and similar tools, as protected under applicable laws.
+Changes & Updates:
+- This license may be updated periodically
+- Changes will be communicated when possible
+- Existing uses remain valid under their original terms
+- 30-day notice will be given for any major changes
 
-9. No part of this Software or its use shall be construed as a violation of any company's terms of service, policies, or technological measures. Users of this Software are indemnified against any such claims.
+Contact & Communication:
+- Questions? Just ask @daedaevibin
+- Please allow up to 30 days for response
+- Commercial use discussions welcome
+- Open to collaborative suggestions
+- High volume of requests may cause delays
+- All inquiries will be addressed in order received
 
-10. This Software and its users are protected against any legal action, charges, or claims of rule violation from any company or entity related to the use of privacy-enhancing technologies, content filtering, or similar tools implemented in or used alongside this Software.
+This license aims to be fair and flexible. If you need adjustments or have special circumstances, please reach out for a friendly discussion.
 
-11. The authors reserve the right to change the terms of this license in future versions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS, COPYRIGHT HOLDERS, OR USERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-By using this Software, you agree to all the terms and conditions of this license.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
