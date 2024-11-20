@@ -99,3 +99,74 @@ tools/target/
 # Debug logs
 debug.log
 *.log
+
+# Kernel specific
+*.ko
+*.ko.cmd
+*.mod
+*.mod.c
+*.mod.o
+*.mod.cmd
+*.order
+*.symvers
+Module.symvers
+Mkfile.old
+dkms.conf
+modules.order
+.tmp_versions/
+*.dwo
+*.gcno
+*.gcda
+
+# Kernel build
+/kernel/linux-*/
+/kernel/*.tar.xz
+/kernel/*.tar.gz
+/kernel/*.tar.zst
+/kernel/*.patch
+/kernel/config-*
+/kernel/System.map-*
+/kernel/vmlinuz-*
+/kernel/initramfs-*
+
+# Package files
+*.tar
+*.tar.*
+*.tgz
+*.zip
+*.deb
+*.rpm
+*.pkg.tar.xz
+*.pkg.tar.zst
+PKGBUILD
+.SRCINFO
+.MTREE
+.BUILDINFO
+
+# Toolchain
+*.toolchain
+/toolchain/
+/cross/
+/sysroot/
+
+# Testing and debugging
+/qemu/
+*.qcow2
+*.vdi
+*.vmdk
+*.vhd
+core
+core.*
+*.coredump
+callgrind.out.*
+perf.data*
+*.gcda
+*.gcno
+*.gcov
+
+# Installer
+/installer/build/
+/installer/dist/
+/installer/iso/
+/installer/*.iso
+/installer/*.img
