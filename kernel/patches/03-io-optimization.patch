@@ -1,0 +1,87 @@
+diff --git a/block/blk-core.c b/block/blk-core.c
+--- a/block/blk-core.c
++++ b/block/blk-core.c
+@@ -1,5 +1,8 @@
+ // AetherOS I/O Optimizations
+ 
++#define AETHER_IO_LATENCY_TARGET_US 500   // 500μs target latency
++#define AETHER_IO_BATCH_SIZE 32           // Optimal batch size
++
+ // Enhanced I/O scheduler
+ static void aether_dispatch_io(struct request_queue *q)
+ {
+     struct request *rq;
+     int dispatched = 0;
++    unsigned long now = jiffies;
++    
++    // Process high-priority requests first
++    while ((rq = elv_next_request(q)) != NULL) {
++        if (blk_rq_is_urgent(rq) ||
++            time_after(now, rq->start_time + AETHER_IO_LATENCY_TARGET_US)) {
++            dispatch_request(q, rq);
++            dispatched++;
++            continue;
++        }
++        break;
++    }
+     
+-    while ((rq = elv_next_request(q)) != NULL && dispatched < 16) {
++    // Batch process remaining requests
++    while ((rq = elv_next_request(q)) != NULL && 
++           dispatched < AETHER_IO_BATCH_SIZE) {
+         dispatch_request(q, rq);
+         dispatched++;
+     }
+ }
+ 
+ // Optimized request merging
+ static bool aether_attempt_merge(struct request_queue *q,
+                               struct request *rq,
+                               struct request *next)
+ {
+-    if (!blk_rq_merge_ok(rq, next))
++    if (!blk_rq_merge_ok(rq, next) ||
++        time_after(jiffies, next->start_time + AETHER_IO_LATENCY_TARGET_US))
+         return false;
+     
++    // Prefer merging sequential reads
++    if (rq_is_sync_read(rq) && rq_is_sync_read(next) &&
++        blk_rq_pos(rq) + blk_rq_sectors(rq) == blk_rq_pos(next)) {
++        return true;
++    }
++    
+     return blk_attempt_req_merge(q, rq, next);
+ }
+ 
+ // Enhanced readahead
+ static void aether_readahead(struct request_queue *q,
+                           struct readahead_control *rac)
+ {
+     unsigned long nr_pages;
++    bool sequential = true;
++    pgoff_t curr_index;
+     
+-    // Adjust readahead size based on access pattern
+-    if (rac->file && !readahead_count(rac))
++    // Check if access is sequential
++    if (rac->file) {
++        curr_index = rac->_index;
++        sequential = (curr_index == rac->file->f_ra.prev_pos + 1);
++        rac->file->f_ra.prev_pos = curr_index;
++    }
++    
++    // Adjust readahead based on access pattern
++    if (!readahead_count(rac)) {
++        if (!sequential)
++            return;
+         nr_pages = rac->file->f_ra.ra_pages;
+-    else
++    } else {
+         nr_pages = get_readahead_size(rac);
++        if (!sequential)
++            nr_pages >>= 1;
++    }
+     
+     // Submit readahead request
+     do_readahead(rac, nr_pages);
+-}

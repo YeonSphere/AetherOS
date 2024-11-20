@@ -1,0 +1,71 @@
+diff --git a/kernel/sched/core.c b/kernel/sched/core.c
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
+@@ -1,5 +1,8 @@
+ // AetherOS Scheduler Optimizations
+ 
++#define AETHER_SCHED_LATENCY_NS 100000  // 100μs target latency
++#define AETHER_MIN_GRANULARITY_NS 10000 // 10μs minimum granularity
++
+ // Optimize task switching for low latency
+ static void aether_task_tick(struct rq *rq, struct task_struct *curr)
+ {
+     unsigned long ideal_runtime, delta_exec;
+     unsigned long delta_fair;
+     struct sched_entity *se = &curr->se;
++    u64 now = rq_clock_task(rq);
+ 
+-    ideal_runtime = sched_slice(cfs_rq_of(se), se);
+-    delta_exec = curr->se.sum_exec_runtime - curr->se.prev_sum_exec_runtime;
++    // Use finer granularity for runtime calculations
++    ideal_runtime = min_t(u64, AETHER_SCHED_LATENCY_NS,
++                         task_util(curr) ? AETHER_MIN_GRANULARITY_NS : 
++                         AETHER_SCHED_LATENCY_NS);
+ 
+-    if (delta_exec > ideal_runtime) {
++    // More aggressive preemption for latency-sensitive tasks
++    if (task_has_low_latency(curr)) {
+         resched_curr(rq);
+         return;
+     }
++
++    // Power-aware scheduling
++    if (task_util(curr) < rq->cpu_capacity_orig >> 2) {
++        if (available_idle_cpu(task_cpu(curr))) {
++            resched_curr(rq);
++            return;
++        }
++    }
+ }
+ 
+ // Enhanced load balancing for better CPU utilization
+ static void aether_load_balance(struct rq *busiest, struct rq *this_rq)
+ {
+     struct task_struct *p;
+     struct list_head *tasks;
++    unsigned long busiest_load, this_load;
++    int busiest_cpu = cpu_of(busiest);
++    int this_cpu = cpu_of(this_rq);
+ 
+-    if (busiest->nr_running <= this_rq->nr_running)
++    // Consider CPU power characteristics
++    busiest_load = cpu_util(busiest_cpu);
++    this_load = cpu_util(this_cpu);
++
++    if (busiest_load <= this_load + (this_load >> 2))
+         return;
+ 
++    // Prioritize moving memory-intensive tasks to CPUs with local memory
+     list_for_each_entry(p, &busiest->cfs_tasks, se.group_node) {
+-        if (task_running(busiest, p))
++        if (task_running(busiest, p) || !task_fits_capacity(p, this_cpu))
+             continue;
+ 
+-        if (can_migrate_task(p, busiest_cpu, this_cpu)) {
++        if (can_migrate_task(p, busiest_cpu, this_cpu) &&
++            task_memory_node(p) == cpu_to_node(this_cpu)) {
+             move_task(p, busiest, this_rq);
+             break;
+         }
+     }
+-}
