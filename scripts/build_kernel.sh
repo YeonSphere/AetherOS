@@ -1,108 +1,141 @@
 #!/bin/bash
 
-# AetherOS Kernel Build System
-# This script handles kernel building and local installation
-
 set -euo pipefail
 
-# Basic configuration
-KERNEL_VERSION="6.11.9"  # Using the version we have
-KERNEL_SOURCE_DIR="/home/dae/YeonSphere/AetherOS/kernel/linux/linux-${KERNEL_VERSION}"
-BUILD_DIR="/home/dae/YeonSphere/AetherOS/build"
-BOOT_DIR="/home/dae/YeonSphere/AetherOS/boot"
-CONFIG_DIR="/home/dae/YeonSphere/AetherOS/configs"
-JOBS=$(nproc)
+# Use AETHER_ROOT consistently
+if [ -z "${AETHER_ROOT:-}" ]; then
+    export AETHER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+fi
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m'
+# Source common functions and variables
+source "${AETHER_ROOT}/scripts/common.sh"
 
-# Logging function
-log() {
-    local level=$1
-    shift
-    local message="$*"
-    echo -e "${GREEN}[${level}]${NC} $message"
+KERNEL_VERSION="6.11.9"
+KERNEL_SRC="${AETHER_ROOT}/kernel/linux/linux-${KERNEL_VERSION}"
+KERNEL_CONFIG="${AETHER_ROOT}/configs/kernel.config"
+KERNEL_BUILD_MARKER="${BUILD_ROOT}/.kernel_built"
+
+log_msg() {
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "[${timestamp}] $1" | tee -a "${KERNEL_LOG}"
 }
 
-# Error handling
-error() {
-    echo -e "${RED}[ERROR]${NC} $*" >&2
-    exit 1
+# Check if kernel is already built and up to date
+check_kernel_built() {
+    # Skip the check if FORCE_REBUILD is set
+    if [ "${FORCE_REBUILD:-0}" = "1" ]; then
+        return 1
+    fi
+    
+    if [ -f "${KERNEL_BUILD_MARKER}" ]; then
+        local built_version=$(cat "${KERNEL_BUILD_MARKER}")
+        if [ "${built_version}" = "${KERNEL_VERSION}" ]; then
+            return 0
+        fi
+    fi
+    return 1
 }
 
-# Function to configure kernel
-configure_kernel() {
-    log "INFO" "Configuring kernel..."
+# Copy and verify kernel config
+setup_kernel_config() {
+    log_msg "Setting up kernel configuration..."
     
-    cd "$KERNEL_SOURCE_DIR" || error "Failed to change to kernel source directory"
+    # Always copy a fresh config
+    cp "${KERNEL_CONFIG}" "${KERNEL_SRC}/.config" || {
+        log_msg "ERROR: Failed to copy kernel config"
+        return 1
+    }
     
-    # Start with a clean slate
-    make mrproper
+    # Verify config
+    cd "${KERNEL_SRC}"
+    make olddefconfig || {
+        log_msg "ERROR: Failed to verify kernel config"
+        return 1
+    }
     
-    # Copy our config
-    cp "$CONFIG_DIR/kernel.config" .config || error "Failed to copy kernel config"
-    
-    # Make sure configuration is valid
-    make olddefconfig || error "Failed to validate kernel config"
+    return 0
 }
 
-# Function to build kernel
-build_kernel() {
-    log "INFO" "Building kernel..."
+# Verify scheduler configuration
+verify_scheduler_config() {
+    log_msg "Verifying scheduler configuration..."
+    cd "${KERNEL_SRC}"
     
-    cd "$KERNEL_SOURCE_DIR" || error "Failed to change to kernel source directory"
+    # Check if CFS Rusty is enabled in the final config
+    if ! grep -q "CONFIG_SCHED_RUSTY=y" .config; then
+        log_msg "ERROR: CFS Rusty scheduler not enabled in final config"
+        return 1
+    fi
     
-    # Clean build artifacts
-    make clean
+    # Verify priority settings
+    if ! grep -q "CONFIG_SCHED_RUSTY_LOCAL_PRIO=5" .config || \
+       ! grep -q "CONFIG_SCHED_RUSTY_GLOBAL_PRIO=5" .config; then
+        log_msg "ERROR: CFS Rusty priority settings not correctly set"
+        return 1
+    fi
     
-    # Build kernel and modules
-    make -j"$JOBS" all || error "Kernel build failed"
-    
-    # Build modules
-    make -j"$JOBS" modules || error "Module build failed"
+    log_msg "Scheduler configuration verified successfully"
+    return 0
 }
 
-# Function to install kernel to build directory
-install_kernel() {
-    log "INFO" "Installing kernel to build directory..."
+# Build kernel and modules
+build_kernel_full() {
+    cd "${KERNEL_SRC}"
     
-    cd "$KERNEL_SOURCE_DIR" || error "Failed to change to kernel source directory"
+    # Use parent's CPU limit or default to number of cores
+    local jobs="${cpu_limit:-$(nproc)}"
     
-    # Create target directories
-    mkdir -p "$BUILD_DIR/boot" || error "Failed to create boot directory"
-    mkdir -p "$BUILD_DIR/lib/modules" || error "Failed to create modules directory"
+    log_msg "Building kernel with $jobs parallel jobs..."
+    make -j"${jobs}" || {
+        log_msg "ERROR: Kernel build failed"
+        return 1
+    }
     
-    # Install modules to build directory
-    make INSTALL_MOD_PATH="$BUILD_DIR" modules_install || error "Module installation failed"
+    log_msg "Building kernel modules..."
+    make modules -j"${jobs}" || {
+        log_msg "ERROR: Kernel modules build failed"
+        return 1
+    }
     
-    # Copy kernel
-    cp "arch/x86/boot/bzImage" "$BUILD_DIR/boot/vmlinuz-${KERNEL_VERSION}-aetheros" || error "Failed to copy kernel image"
+    log_msg "Installing kernel modules..."
+    make INSTALL_MOD_PATH="${BUILD_ROOT}/sysroot" modules_install || {
+        log_msg "ERROR: Kernel module installation failed"
+        return 1
+    }
     
-    log "INFO" "Kernel installed to $BUILD_DIR/boot/vmlinuz-${KERNEL_VERSION}-aetheros"
+    # Create boot directory if it doesn't exist
+    mkdir -p "${BUILD_ROOT}/boot"
+    
+    # Copy kernel to boot directory
+    cp arch/x86/boot/bzImage "${BUILD_ROOT}/boot/vmlinuz" || {
+        log_msg "ERROR: Failed to copy kernel image"
+        return 1
+    }
+    
+    # Create build marker
+    echo "${KERNEL_VERSION}" > "${KERNEL_BUILD_MARKER}"
+    
+    return 0
 }
 
-# Main function
+# Main build process
 main() {
-    log "INFO" "Starting AetherOS kernel build process..."
+    # Ensure source exists
+    if [ ! -d "${KERNEL_SRC}" ]; then
+        log_msg "ERROR: Kernel source not found at ${KERNEL_SRC}"
+        exit 1
+    }
     
-    # Create build directory
-    mkdir -p "$BUILD_DIR" || error "Failed to create build directory"
+    if check_kernel_built; then
+        log_msg "Kernel already built, skipping build process"
+        return 0
+    fi
     
-    # Configure kernel
-    configure_kernel
+    setup_kernel_config || exit 1
+    verify_scheduler_config || exit 1
+    build_kernel_full || exit 1
     
-    # Build kernel
-    build_kernel
-    
-    # Install kernel to build directory
-    install_kernel
-    
-    log "INFO" "Kernel build process completed successfully"
-    log "INFO" "Kernel image: $BUILD_DIR/boot/vmlinuz-${KERNEL_VERSION}-aetheros"
-    log "INFO" "Note: To install the kernel system-wide, you will need to manually copy the kernel and modules with root privileges"
+    log_msg "Kernel build completed successfully"
 }
 
-# Run main function
 main "$@"

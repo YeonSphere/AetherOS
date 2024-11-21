@@ -107,15 +107,15 @@ get_kernel_version() {
 }
 
 using_systemd() {
-    [ -d /run/systemd/system ]
+    [ -d "/run/systemd/system" ]
 }
 
 # Check if running as root
 check_root() {
-    if [ "$(id -u)" != "0" ]; then
-        log ERROR "This script must be run as root"
-        return 1
+    if [ "$(id -u)" -eq 0 ]; then
+        return 0
     fi
+    return 1
 }
 
 # Check system requirements
@@ -144,12 +144,6 @@ check_system() {
         fi
     done
     
-    # Check for kernel headers
-    if [ ! -f "${KERNEL_PATH}" ]; then
-        log ERROR "Kernel not found at ${KERNEL_PATH}. Please build the kernel first."
-        return 1
-    fi
-    
     # Set compilation environment
     export CROSS_COMPILE=""
     export CC="gcc"
@@ -172,6 +166,12 @@ check_build_env() {
     ensure_dir "$BUILD_ROOT"
     ensure_dir "$SYSROOT"
     ensure_dir "$TOOLS_DIR"
+    
+    # Check for systemd (needed for systemd-run)
+    if ! using_systemd; then
+        log ERROR "systemd is required for build process"
+        return 1
+    fi
     
     return 0
 }
