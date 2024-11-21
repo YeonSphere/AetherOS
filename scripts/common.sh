@@ -2,8 +2,9 @@
 
 # Common functions for AetherOS scripts
 
-# Base paths
-export AETHER_ROOT="/home/dae/YeonSphere/AetherOS"
+# Determine script paths
+COMMON_SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+export AETHER_ROOT="$(readlink -f "${COMMON_SCRIPT_DIR}/..")"
 export BUILD_ROOT="${AETHER_ROOT}/build"
 export SYSROOT="${BUILD_ROOT}/sysroot"
 export TOOLS_DIR="${BUILD_ROOT}/tools"
@@ -48,15 +49,19 @@ log() {
     case $level in
         ERROR)
             [[ $VERBOSE -ge $LOG_ERROR ]] && echo -e "${timestamp} ${RED}[ERROR]${NC} $message" >&2
+            return 1
             ;;
         WARN)
             [[ $VERBOSE -ge $LOG_WARN ]] && echo -e "${timestamp} ${YELLOW}[WARN]${NC} $message"
+            return 0
             ;;
         INFO)
             [[ $VERBOSE -ge $LOG_INFO ]] && echo -e "${timestamp} ${GREEN}[INFO]${NC} $message"
+            return 0
             ;;
         DEBUG)
             [[ $VERBOSE -ge $LOG_DEBUG ]] && echo -e "${timestamp} ${BLUE}[DEBUG]${NC} $message"
+            return 0
             ;;
     esac
 }
@@ -71,8 +76,12 @@ cleanup() {
 ensure_dir() {
     local dir=$1
     if [ ! -d "$dir" ]; then
-        mkdir -p "$dir"
+        mkdir -p "$dir" || {
+            log ERROR "Failed to create directory: $dir"
+            return 1
+        }
     fi
+    return 0
 }
 
 command_exists() {
@@ -159,13 +168,15 @@ check_system() {
 check_build_env() {
     # Check system requirements
     if ! check_system; then
+        log ERROR "System requirements check failed"
         return 1
     fi
     
-    # Check directories
-    ensure_dir "$BUILD_ROOT"
-    ensure_dir "$SYSROOT"
-    ensure_dir "$TOOLS_DIR"
+    # Check for root privileges
+    if ! check_root; then
+        log ERROR "Root privileges required"
+        return 1
+    fi
     
     # Check for systemd (needed for systemd-run)
     if ! using_systemd; then
@@ -173,6 +184,23 @@ check_build_env() {
         return 1
     fi
     
+    # Check directories
+    if ! ensure_dir "$BUILD_ROOT"; then
+        log ERROR "Failed to create build root directory"
+        return 1
+    fi
+    
+    if ! ensure_dir "$SYSROOT"; then
+        log ERROR "Failed to create sysroot directory"
+        return 1
+    fi
+    
+    if ! ensure_dir "$TOOLS_DIR"; then
+        log ERROR "Failed to create tools directory"
+        return 1
+    fi
+    
+    log INFO "Build environment check completed successfully"
     return 0
 }
 

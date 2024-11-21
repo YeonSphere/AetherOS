@@ -3,88 +3,167 @@
 # Build script for BusyBox
 # This provides our core system utilities
 
-set -e
+set -euo pipefail
 
-source "$(dirname "$0")/common.sh"
+# Source common functions and variables
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+source "${SCRIPT_DIR}/common.sh"
 
-BUSYBOX_VERSION="1.36.1"
+# Build configuration
+BUSYBOX_VERSION="${BUSYBOX_VERSION:-1.36.1}"
 BUSYBOX_URL="https://busybox.net/downloads/busybox-${BUSYBOX_VERSION}.tar.bz2"
+BUSYBOX_SHA256="b8cc24c9574d809e7279c3be349795c5d5ceb6fdf19ca709f80cde50e47de314"
 BUILD_DIR="${BUILD_ROOT}/busybox"
-SYSROOT="${BUILD_ROOT}/sysroot"
+SOURCE_DIR="${BUILD_DIR}/busybox-${BUSYBOX_VERSION}"
 
-# Set compiler variables
-export CC="gcc"
-export CFLAGS="-O2 -static -I${KERNEL_HEADERS} -fno-omit-frame-pointer"
-export LDFLAGS="-static -Wl,--gc-sections"
-export LDLIBS="-ldl -lpthread"
-export CONFIG_EXTRA_LDLIBS="dl pthread"
+# Compiler flags
+export CROSS_COMPILE="${CROSS_COMPILE:-}"
+export CC="${CROSS_COMPILE}gcc"
+export CFLAGS="-O2 -static -fno-omit-frame-pointer ${CFLAGS:-}"
+export LDFLAGS="-static -Wl,--gc-sections ${LDFLAGS:-}"
+export LDLIBS="-ldl -lpthread -lm -lresolv"
+export CONFIG_EXTRA_LDLIBS="dl pthread m resolv"
 
-build_busybox() {
-    log INFO "Building BusyBox ${BUSYBOX_VERSION}"
+# Download and extract busybox
+download_busybox() {
+    log INFO "Downloading BusyBox ${BUSYBOX_VERSION}"
     
-    # Create build directory
     ensure_dir "${BUILD_DIR}"
     cd "${BUILD_DIR}"
     
-    # Download and extract
-    if [ ! -f "busybox-${BUSYBOX_VERSION}.tar.bz2" ]; then
-        wget "${BUSYBOX_URL}"
-        tar xf "busybox-${BUSYBOX_VERSION}.tar.bz2"
+    local archive="busybox-${BUSYBOX_VERSION}.tar.bz2"
+    
+    # Check if we already have the correct archive
+    if [ -f "${archive}" ]; then
+        if echo "${BUSYBOX_SHA256}  ${archive}" | sha256sum -c - >/dev/null 2>&1; then
+            log INFO "Existing BusyBox archive verified"
+            return 0
+        else
+            log WARN "Existing BusyBox archive is corrupt, re-downloading"
+            rm -f "${archive}"
+        fi
     fi
     
-    cd "busybox-${BUSYBOX_VERSION}"
+    # Download and verify
+    if ! wget -q --show-progress "${BUSYBOX_URL}"; then
+        log ERROR "Failed to download BusyBox source"
+        return 1
+    fi
     
-    # Configure
+    if ! echo "${BUSYBOX_SHA256}  ${archive}" | sha256sum -c -; then
+        log ERROR "BusyBox source verification failed"
+        rm -f "${archive}"
+        return 1
+    fi
+    
+    # Extract source
+    if [ -d "${SOURCE_DIR}" ]; then
+        rm -rf "${SOURCE_DIR}"
+    fi
+    
+    if ! tar xf "${archive}"; then
+        log ERROR "Failed to extract BusyBox source"
+        return 1
+    fi
+    
+    log INFO "Successfully downloaded and verified BusyBox source"
+}
+
+# Configure BusyBox build
+configure_build() {
+    log INFO "Configuring BusyBox build"
+    
+    cd "${SOURCE_DIR}"
+    
+    # Start with default configuration
     make defconfig
     
-    # Enable static build and other features
-    sed -i 's/# CONFIG_STATIC is not set/CONFIG_STATIC=y/' .config
-    sed -i 's/CONFIG_EXTRA_LDLIBS=""/CONFIG_EXTRA_LDLIBS="dl pthread"/' .config
-    sed -i 's/# CONFIG_INSTALL_NO_USR is not set/CONFIG_INSTALL_NO_USR=y/' .config
-    sed -i 's/# CONFIG_FEATURE_FAST_TOP is not set/CONFIG_FEATURE_FAST_TOP=y/' .config
-    sed -i 's/# CONFIG_FEATURE_EDITING_HISTORY is not set/CONFIG_FEATURE_EDITING_HISTORY=1000/' .config
+    # Configure build options
+    local config_options=(
+        'CONFIG_STATIC=y'
+        'CONFIG_INSTALL_NO_USR=y'
+        'CONFIG_FEATURE_FAST_TOP=y'
+        'CONFIG_FEATURE_EDITING_HISTORY=1000'
+        'CONFIG_FEATURE_EDITING_ASK_TERMINAL=y'
+        'CONFIG_FEATURE_EDITING_VI=y'
+        'CONFIG_FEATURE_EDITING_SAVEHISTORY=y'
+        'CONFIG_FEATURE_LESS_MAXLINES=9999999'
+        '# CONFIG_TC is not set'
+        '# CONFIG_WERROR is not set'
+        "CONFIG_EXTRA_LDLIBS=\"${CONFIG_EXTRA_LDLIBS}\""
+    )
     
-    # Enable advanced features
-    sed -i 's/# CONFIG_FEATURE_EDITING_ASK_TERMINAL is not set/CONFIG_FEATURE_EDITING_ASK_TERMINAL=y/' .config
-    sed -i 's/# CONFIG_FEATURE_EDITING_VI is not set/CONFIG_FEATURE_EDITING_VI=y/' .config
-    sed -i 's/# CONFIG_FEATURE_EDITING_SAVEHISTORY is not set/CONFIG_FEATURE_EDITING_SAVEHISTORY=y/' .config
-    sed -i 's/# CONFIG_FEATURE_LESS_MAXLINES is not set/CONFIG_FEATURE_LESS_MAXLINES=9999999/' .config
+    # Apply configuration options
+    for option in "${config_options[@]}"; do
+        if [[ "${option}" == \#* ]]; then
+            # Disable option
+            local key="${option#\# }"
+            key="${key% is not set}"
+            sed -i "s/^${key}=.*\$/${option}/" .config
+        else
+            # Enable option
+            local key="${option%=*}"
+            sed -i "s/^# ${key} is not set\$/${option}/" .config
+            sed -i "s/^${key}=.*\$/${option}/" .config
+        fi
+    done
     
-    # Disable problematic components
-    sed -i 's/CONFIG_TC=y/# CONFIG_TC is not set/' .config
-    sed -i 's/CONFIG_WERROR=y/# CONFIG_WERROR is not set/' .config
+    log INFO "BusyBox build configuration completed"
+}
+
+# Build BusyBox
+build_busybox() {
+    log INFO "Building BusyBox"
     
-    # Build with musl
-    make -j"$(nproc)" \
+    cd "${SOURCE_DIR}"
+    
+    # Build with all available cores but limit load
+    if ! make -j"${PARALLEL_JOBS}" \
         CC="${CC}" \
         CFLAGS="${CFLAGS}" \
         LDFLAGS="${LDFLAGS}" \
         LDLIBS="${LDLIBS}" \
-        CROSS_COMPILE="" \
+        CROSS_COMPILE="${CROSS_COMPILE}" \
         CONFIG_SYSROOT="${SYSROOT}" \
-        CONFIG_PREFIX="${SYSROOT}" \
-        CONFIG_EXTRA_LDLIBS="dl pthread"
+        CONFIG_PREFIX="${SYSROOT}"; then
+        log ERROR "BusyBox build failed"
+        return 1
+    fi
     
-    # Install
-    make CONFIG_PREFIX="${SYSROOT}" install
+    log INFO "BusyBox build completed"
+}
+
+# Install BusyBox
+install_busybox() {
+    log INFO "Installing BusyBox"
+    
+    cd "${SOURCE_DIR}"
+    
+    # Install BusyBox
+    if ! make CONFIG_PREFIX="${SYSROOT}" install; then
+        log ERROR "BusyBox installation failed"
+        return 1
+    fi
     
     # Create essential symlinks
     ln -sf busybox "${SYSROOT}/bin/sh"
     
     # Create basic system directories
-    for dir in root home dev proc sys tmp var mnt media run; do
+    local system_dirs=(
+        root home dev proc sys tmp var mnt media run
+        etc/init.d
+    )
+    
+    for dir in "${system_dirs[@]}"; do
         ensure_dir "${SYSROOT}/${dir}"
     done
     
-    # Create /etc directory
-    ensure_dir "${SYSROOT}/etc"
-    
-    log INFO "BusyBox build completed"
+    log INFO "BusyBox installation completed"
 }
 
-# Configure BusyBox
-configure_busybox() {
-    log INFO "Configuring BusyBox system"
+# Configure system
+configure_system() {
+    log INFO "Configuring system"
     
     # Create basic configuration files
     cat > "${SYSROOT}/etc/passwd" << "EOF"
@@ -136,10 +215,9 @@ if [ -f ~/.bashrc ]; then
 fi
 EOF
 
-    # Set up basic system configuration
+    # System configuration files
     echo "AetherOS" > "${SYSROOT}/etc/hostname"
     
-    # Create minimal fstab
     cat > "${SYSROOT}/etc/fstab" << "EOF"
 # <file system> <mount point>   <type>  <options>       <dump>  <pass>
 /dev/root       /              auto    defaults        1       1
@@ -150,7 +228,6 @@ tmpfs           /run           tmpfs   defaults        0       0
 tmpfs           /tmp           tmpfs   defaults        0       0
 EOF
 
-    # Create minimal inittab
     cat > "${SYSROOT}/etc/inittab" << "EOF"
 # /etc/inittab
 ::sysinit:/etc/init.d/rcS
@@ -160,8 +237,7 @@ EOF
 ::restart:/sbin/init
 EOF
 
-    # Create startup script
-    ensure_dir "${SYSROOT}/etc/init.d"
+    # System startup script
     cat > "${SYSROOT}/etc/init.d/rcS" << "EOF"
 #!/bin/sh
 
@@ -185,24 +261,50 @@ echo "AetherOS startup completed"
 EOF
     chmod +x "${SYSROOT}/etc/init.d/rcS"
     
-    log INFO "BusyBox configuration completed"
+    # Verify system configuration
+    if [ ! -x "${SYSROOT}/bin/busybox" ]; then
+        log ERROR "BusyBox binary not found or not executable"
+        return 1
+    fi
+    
+    if [ ! -x "${SYSROOT}/etc/init.d/rcS" ]; then
+        log ERROR "System startup script not found or not executable"
+        return 1
+    fi
+    
+    log INFO "System configuration completed"
 }
 
 # Main build process
 main() {
     log INFO "Starting BusyBox build process"
     
-    # Check build environment
-    check_build_env || exit 1
-    
     # Build steps
-    build_busybox
-    configure_busybox
+    local steps=(
+        download_busybox
+        configure_build
+        build_busybox
+        install_busybox
+        configure_system
+    )
+    
+    local step_count=${#steps[@]}
+    local current_step=1
+    
+    for step in "${steps[@]}"; do
+        log INFO "Step ${current_step}/${step_count}: Running ${step}"
+        if ! ${step}; then
+            log ERROR "Step ${step} failed"
+            return 1
+        fi
+        ((current_step++))
+    done
     
     log INFO "BusyBox build process completed successfully"
+    return 0
 }
 
 # Run main if script is executed directly
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    main
+    main "$@"
 fi

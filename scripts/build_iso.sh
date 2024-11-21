@@ -1,180 +1,249 @@
 #!/bin/bash
 
-# Set paths
-SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
-PROJECT_ROOT="$(readlink -f "$SCRIPT_DIR/..")"
-BUILD_DIR="$PROJECT_ROOT/build"
-ISO_DIR="$BUILD_DIR/iso"
-SYSLINUX_CFG="$ISO_DIR/boot/isolinux/isolinux.cfg"
-OUTPUT_ISO="$BUILD_DIR/AetherOS.iso"
+# Build script for AetherOS ISO
+# This creates a bootable ISO image from our built components
 
-# Check for required tools
-if ! command -v xorriso &> /dev/null; then
-    echo "xorriso is required but not installed"
-    exit 1
-fi
-
-if ! command -v syslinux &> /dev/null; then
-    echo "syslinux is required but not installed"
-    exit 1
-fi
-
-# Create isolinux configuration
-echo "Creating isolinux configuration..."
-mkdir -p "$(dirname "$SYSLINUX_CFG")"
-cat > "$SYSLINUX_CFG" << EOF
-DEFAULT aetheros
-TIMEOUT 50
-PROMPT 1
-
-LABEL aetheros
-    MENU LABEL AetherOS
-    LINUX /boot/vmlinuz
-    INITRD /boot/initramfs.cpio.gz
-    APPEND root=/dev/ram0 rw quiet
-EOF
-
-# Copy necessary bootloader files
-echo "Copying bootloader files..."
-mkdir -p "$ISO_DIR/boot/isolinux"
-cp /usr/lib/syslinux/bios/isolinux.bin "$ISO_DIR/boot/isolinux/"
-cp /usr/lib/syslinux/bios/ldlinux.c32 "$ISO_DIR/boot/isolinux/"
-
-# Look for kernel in possible locations
-echo "Looking for kernel..."
-POSSIBLE_KERNEL_LOCATIONS=(
-    "/boot/vmlinuz-*-aetheros"
-    "$BUILD_DIR/boot/vmlinuz"
-    "$PROJECT_ROOT/boot/vmlinuz"
-)
-
-KERNEL_FOUND=false
-for location in "${POSSIBLE_KERNEL_LOCATIONS[@]}"; do
-    # Expand glob pattern if any
-    for kernel in $location; do
-        if [ -f "$kernel" ]; then
-            echo "Found kernel at $kernel"
-            mkdir -p "$ISO_DIR/boot"
-            cp "$kernel" "$ISO_DIR/boot/vmlinuz"
-            KERNEL_FOUND=true
-            break 2
-        fi
-    done
-done
-
-if [ "$KERNEL_FOUND" = false ]; then
-    echo "No kernel found in the following locations:"
-    printf '%s\n' "${POSSIBLE_KERNEL_LOCATIONS[@]}"
-    echo "Please build the kernel first using build_kernel.sh"
-    exit 1
-fi
-
-# Create ISO
-echo "Creating bootable ISO..."
 set -euo pipefail
 
-ISO_ROOT="${BUILD_DIR}/iso"
+# Source common functions and variables
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+source "${SCRIPT_DIR}/common.sh"
+
+# ISO configuration
+ISO_ROOT="${BUILD_ROOT}/iso"
 ISO_BOOT="${ISO_ROOT}/boot"
-ISO_IMAGE="${ISO_ROOT}/AetherOS.iso"
+ISO_IMAGE="${ISO_DIR}/aetheros-${AETHER_VERSION}.iso"
+GRUB_CFG="${ISO_BOOT}/grub/grub.cfg"
 
-log_msg() {
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    echo "[${timestamp}] $1" | tee -a "${BUILD_DIR}/iso_build.log"
-}
+# Required files
+KERNEL_IMAGE="${BUILD_ROOT}/boot/vmlinuz"
+INITRAMFS_IMAGE="${BUILD_ROOT}/boot/initramfs.cpio.gz"
 
-error_exit() {
-    log_msg "ERROR: $1"
-    exit 1
-}
-
-check_dependencies() {
-    log_msg "Checking build dependencies..."
+# Verify build dependencies
+verify_dependencies() {
+    log INFO "Verifying build dependencies"
     
     # Check for required tools
-    for cmd in grub-mkrescue xorriso mksquashfs; do
-        if ! command -v $cmd >/dev/null 2>&1; then
-            error_exit "Required command '$cmd' not found"
+    local required_tools=(
+        "grub-mkrescue"
+        "xorriso"
+        "mksquashfs"
+        "grub-mkimage"
+    )
+    
+    for tool in "${required_tools[@]}"; do
+        if ! command -v "${tool}" >/dev/null 2>&1; then
+            log ERROR "Required tool '${tool}' not found"
+            return 1
         fi
     done
     
-    # Check for kernel
-    if [ ! -f "${BUILD_DIR}/boot/vmlinuz" ]; then
-        error_exit "Kernel not found at ${BUILD_DIR}/boot/vmlinuz"
+    # Check for required files
+    if [ ! -f "${KERNEL_IMAGE}" ]; then
+        log ERROR "Kernel image not found at ${KERNEL_IMAGE}"
+        return 1
     fi
     
-    # Check for initramfs
-    if [ ! -f "${BUILD_DIR}/boot/initramfs.cpio.gz" ]; then
-        error_exit "initramfs not found at ${BUILD_DIR}/boot/initramfs.cpio.gz"
+    if [ ! -f "${INITRAMFS_IMAGE}" ]; then
+        log ERROR "Initramfs not found at ${INITRAMFS_IMAGE}"
+        return 1
     fi
-}
-
-create_iso_dirs() {
-    log_msg "Creating ISO directory structure..."
     
-    rm -rf "${ISO_ROOT}"
-    mkdir -p "${ISO_ROOT}"
-    mkdir -p "${ISO_BOOT}"
-    mkdir -p "${ISO_BOOT}/grub"
+    log INFO "All dependencies verified"
 }
 
+# Create ISO directory structure
+create_iso_structure() {
+    log INFO "Creating ISO directory structure"
+    
+    # Clean previous build
+    if [ -d "${ISO_ROOT}" ]; then
+        rm -rf "${ISO_ROOT}"
+    fi
+    
+    # Create required directories
+    local iso_dirs=(
+        "${ISO_ROOT}"
+        "${ISO_BOOT}"
+        "${ISO_BOOT}/grub"
+        "${ISO_ROOT}/EFI/BOOT"
+    )
+    
+    for dir in "${iso_dirs[@]}"; do
+        ensure_dir "${dir}"
+    done
+    
+    log INFO "ISO directory structure created"
+}
+
+# Copy boot files
 copy_boot_files() {
-    log_msg "Copying boot files..."
+    log INFO "Copying boot files"
     
-    cp "${BUILD_DIR}/boot/vmlinuz" "${ISO_BOOT}/vmlinuz"
-    cp "${BUILD_DIR}/boot/initramfs.cpio.gz" "${ISO_BOOT}/initramfs.img"
+    # Copy kernel and initramfs
+    cp "${KERNEL_IMAGE}" "${ISO_BOOT}/vmlinuz" || {
+        log ERROR "Failed to copy kernel image"
+        return 1
+    }
+    
+    cp "${INITRAMFS_IMAGE}" "${ISO_BOOT}/initramfs.img" || {
+        log ERROR "Failed to copy initramfs"
+        return 1
+    }
+    
+    # Copy GRUB modules for both BIOS and UEFI
+    local grub_lib
+    if [ -d "/usr/lib/grub/x86_64-efi" ]; then
+        grub_lib="/usr/lib/grub/x86_64-efi"
+    elif [ -d "/usr/lib/grub/i386-pc" ]; then
+        grub_lib="/usr/lib/grub/i386-pc"
+    else
+        log ERROR "GRUB modules directory not found"
+        return 1
+    fi
+    
+    cp -r "${grub_lib}"/* "${ISO_BOOT}/grub/" || {
+        log ERROR "Failed to copy GRUB modules"
+        return 1
+    }
+    
+    log INFO "Boot files copied successfully"
 }
 
+# Create GRUB configuration
 create_grub_config() {
-    log_msg "Creating GRUB configuration..."
+    log INFO "Creating GRUB configuration"
     
-    cat > "${ISO_BOOT}/grub/grub.cfg" << EOF
+    cat > "${GRUB_CFG}" << EOF
 set default=0
 set timeout=5
+set timeout_style=menu
 
-menuentry "AetherOS" {
-    linux /boot/vmlinuz root=/dev/ram0 rw quiet
+function load_video {
+    if [ x\$feature_all_video_module = xy ]; then
+        insmod all_video
+    else
+        insmod efi_gop
+        insmod efi_uga
+        insmod ieee1275_fb
+        insmod vbe
+        insmod vga
+        insmod video_bochs
+        insmod video_cirrus
+    fi
+}
+
+load_video
+set gfxpayload=keep
+insmod gzio
+insmod part_gpt
+insmod ext2
+
+menuentry "AetherOS ${AETHER_VERSION}" {
+    linux /boot/vmlinuz root=/dev/ram0 rw quiet loglevel=3
     initrd /boot/initramfs.img
 }
 
-menuentry "AetherOS (Debug Mode)" {
-    linux /boot/vmlinuz root=/dev/ram0 rw debug
+menuentry "AetherOS ${AETHER_VERSION} (Debug Mode)" {
+    linux /boot/vmlinuz root=/dev/ram0 rw debug loglevel=7
     initrd /boot/initramfs.img
 }
 
-menuentry "AetherOS (Recovery Mode)" {
+menuentry "AetherOS ${AETHER_VERSION} (Recovery Mode)" {
     linux /boot/vmlinuz root=/dev/ram0 rw single
     initrd /boot/initramfs.img
 }
 EOF
-}
-
-create_iso() {
-    log_msg "Creating ISO image..."
     
-    # Create ISO with GRUB2
-    grub-mkrescue -o "${ISO_IMAGE}" "${ISO_ROOT}" \
-        --compress=xz \
-        --product-name="AetherOS" \
-        --product-version="" \
-        || error_exit "Failed to create ISO image"
-    
-    if [ ! -f "${ISO_IMAGE}" ]; then
-        error_exit "ISO image was not created"
+    if [ ! -f "${GRUB_CFG}" ]; then
+        log ERROR "Failed to create GRUB configuration"
+        return 1
     fi
     
-    log_msg "ISO image created successfully at ${ISO_IMAGE}"
+    log INFO "GRUB configuration created"
 }
 
-check_dependencies
-create_iso_dirs
-copy_boot_files
-create_grub_config
-create_iso
+# Create UEFI boot support
+create_uefi_support() {
+    log INFO "Creating UEFI boot support"
+    
+    # Create UEFI bootloader
+    grub-mkimage \
+        -O x86_64-efi \
+        -o "${ISO_ROOT}/EFI/BOOT/bootx64.efi" \
+        -p "/boot/grub" \
+        part_gpt part_msdos fat iso9660 normal boot linux configfile \
+        linuxefi gzio all_video efi_gop efi_uga font gfxterm gettext \
+        || {
+            log ERROR "Failed to create UEFI bootloader"
+            return 1
+        }
+    
+    log INFO "UEFI boot support created"
+}
 
-if [ $? -eq 0 ]; then
-    echo "ISO created successfully at $ISO_IMAGE"
-    echo "You can now write this ISO to a USB drive using 'dd' or your preferred tool"
-else
-    echo "Failed to create ISO"
-    exit 1
+# Create ISO image
+create_iso_image() {
+    log INFO "Creating ISO image"
+    
+    # Create ISO with both BIOS and UEFI support
+    grub-mkrescue \
+        -o "${ISO_IMAGE}" \
+        "${ISO_ROOT}" \
+        --compress=xz \
+        --product-name="AetherOS" \
+        --product-version="${AETHER_VERSION}" \
+        || {
+            log ERROR "Failed to create ISO image"
+            return 1
+        }
+    
+    if [ ! -f "${ISO_IMAGE}" ]; then
+        log ERROR "ISO image was not created"
+        return 1
+    fi
+    
+    # Calculate and store checksums
+    local checksum_file="${ISO_DIR}/SHA256SUMS"
+    cd "${ISO_DIR}"
+    sha256sum "$(basename "${ISO_IMAGE}")" > "${checksum_file}"
+    
+    log INFO "ISO image created successfully at ${ISO_IMAGE}"
+    log INFO "SHA256 checksum stored in ${checksum_file}"
+}
+
+# Main build process
+main() {
+    log INFO "Starting ISO build process"
+    
+    # Build steps
+    local steps=(
+        verify_dependencies
+        create_iso_structure
+        copy_boot_files
+        create_grub_config
+        create_uefi_support
+        create_iso_image
+    )
+    
+    local step_count=${#steps[@]}
+    local current_step=1
+    
+    for step in "${steps[@]}"; do
+        log INFO "Step ${current_step}/${step_count}: Running ${step}"
+        if ! ${step}; then
+            log ERROR "Step ${step} failed"
+            return 1
+        fi
+        ((current_step++))
+    done
+    
+    log INFO "ISO build process completed successfully"
+    log INFO "You can write the ISO to a USB drive using 'dd' or your preferred tool"
+    return 0
+}
+
+# Run main if script is executed directly
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
 fi

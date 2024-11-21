@@ -1,0 +1,112 @@
+diff --git a/include/linux/sched/rusty.h b/include/linux/sched/rusty.h
+new file mode 100644
+index 0000000..1234567
+--- /dev/null
++++ b/include/linux/sched/rusty.h
+@@ -0,0 +1,108 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++#ifndef _LINUX_SCHED_RUSTY_H
++#define _LINUX_SCHED_RUSTY_H
++
++#include <linux/sched.h>
++#include <linux/sched/fair.h>
++#include <linux/types.h>
++
++#ifdef CONFIG_SCHED_RUSTY
++
++/* Constants for the Rusty scheduler */
++#define RUSTY_MAX_VRUNTIME_DIFF (10 * NSEC_PER_SEC)
++#define RUSTY_PRIO_DIFF_THRESHOLD 2
++#define RUSTY_MIN_GRANULARITY (3 * NSEC_PER_MSEC)
++#define RUSTY_DEFAULT_LATENCY (6 * NSEC_PER_MSEC)
++
++/* Rusty scheduler entity structure */
++struct sched_rusty_entity {
++    struct list_head run_list;
++    unsigned int prio;
++    unsigned int local_prio;
++    unsigned int global_prio;
++    u64 exec_start;
++    u64 sum_exec_runtime;
++    u64 vruntime;
++    u64 prev_sum_exec_runtime;
++    u64 load_weight;
++    u64 load_avg;
++    unsigned int on_rq;
++    struct sched_rusty_entity *parent;
++    struct cfs_rq *cfs_rq;
++};
++
++/* Rusty run queue structure */
++struct rusty_rq {
++    struct list_head queue;
++    unsigned int nr_running;
++    u64 clock;
++    u64 min_vruntime;
++    raw_spinlock_t lock;
++    unsigned long nr_switches;
++    unsigned long nr_uninterruptible;
++    u64 exec_clock;
++    u64 wait_runtime;
++    struct sched_rusty_entity *curr;
++};
++
++/* Function declarations */
++extern void init_rusty_rq(struct rusty_rq *rusty_rq);
++extern void init_rusty_entity(struct sched_rusty_entity *rusty_se);
++extern void update_curr_rusty(struct rq *rq);
++extern u64 calc_delta_fair(u64 delta, struct sched_rusty_entity *se);
++extern struct sched_rusty_entity *pick_next_entity_rusty(struct rusty_rq *rusty_rq);
++extern bool entity_before(struct sched_rusty_entity *a, struct sched_rusty_entity *b);
++extern bool needs_resched_rusty(struct sched_rusty_entity *curr_se, struct rusty_rq *rusty_rq);
++extern void set_next_entity_rusty(struct rusty_rq *rusty_rq, struct sched_rusty_entity *se);
++
++/* Task group related functions */
++extern void init_rusty_entity_runnable_average(struct sched_rusty_entity *rusty_se);
++extern void update_rusty_entity_load_avg(struct sched_rusty_entity *rusty_se, int update_tg);
++extern void update_rusty_rq_load_avg(struct rusty_rq *rusty_rq, int update_tg);
++
++/* Helper functions */
++static inline u64 rusty_calc_delta(u64 delta_exec, unsigned long weight, struct load_weight *lw)
++{
++    u64 fact = scale_load_down(weight);
++    int shift = WMULT_SHIFT;
++
++    __update_load_avg_blocked_se(delta_exec, cpu_of(rq_of(cfs_rq)), se);
++
++    return div_u64(delta_exec * fact, lw->weight);
++}
++
++static inline void update_rusty_min_vruntime(struct rusty_rq *rusty_rq)
++{
++    u64 vruntime = rusty_rq->min_vruntime;
++    struct sched_rusty_entity *se;
++
++    if (!rusty_rq->nr_running)
++        return;
++
++    list_for_each_entry(se, &rusty_rq->queue, run_list) {
++        if (entity_before(se, &vruntime))
++            vruntime = se->vruntime;
++    }
++
++    rusty_rq->min_vruntime = vruntime;
++}
++
++static inline void __enqueue_rusty_entity(struct rusty_rq *rusty_rq,
++                                       struct sched_rusty_entity *se)
++{
++    list_add_tail(&se->run_list, &rusty_rq->queue);
++    rusty_rq->nr_running++;
++}
++
++static inline void __dequeue_rusty_entity(struct rusty_rq *rusty_rq,
++                                       struct sched_rusty_entity *se)
++{
++    list_del_init(&se->run_list);
++    rusty_rq->nr_running--;
++}
++
++#endif /* CONFIG_SCHED_RUSTY */
++
++#endif /* _LINUX_SCHED_RUSTY_H */

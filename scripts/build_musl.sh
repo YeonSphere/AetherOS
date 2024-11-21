@@ -3,68 +3,117 @@
 # Build script for musl libc
 # This provides our core C library implementation
 
-set -e
+set -euo pipefail
 
-source "$(dirname "$0")/common.sh"
+# Source common functions and variables
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+source "${SCRIPT_DIR}/common.sh"
 
-MUSL_VERSION="1.2.4"
+# Build configuration
+MUSL_VERSION="${MUSL_VERSION:-1.2.4}"
 MUSL_URL="https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz"
+MUSL_SHA256="7a35eae33d5372a7c0da1188de798726f68825513b7ae3ebe97aaaa52114f039"
 BUILD_DIR="${BUILD_ROOT}/musl"
-SYSROOT="${BUILD_ROOT}/sysroot"
+SOURCE_DIR="${BUILD_DIR}/musl-${MUSL_VERSION}"
 
-# Set compiler variables
-export CC="gcc"
-export CFLAGS="-O2 -fPIC -fno-omit-frame-pointer -I${KERNEL_HEADERS}"
-export LDFLAGS="-static"
-export AR="ar"
-export RANLIB="ranlib"
+# Ensure build directories exist with proper permissions
+setup_build_dirs() {
+    log INFO "Setting up build directories"
+    
+    # Create build directories with proper permissions
+    for dir in "${BUILD_DIR}" "${SYSROOT}" "${TOOLS_DIR}"; do
+        if ! ensure_dir "${dir}"; then
+            log ERROR "Failed to create directory: ${dir}"
+            return 1
+        fi
+        
+        # Ensure proper permissions
+        if ! chmod 755 "${dir}"; then
+            log ERROR "Failed to set permissions on ${dir}"
+            return 1
+        fi
+    done
+    
+    log INFO "Build directories setup completed"
+    return 0
+}
 
-# Set make variables
-export MAKE_AR="ar"
-export MAKE_RANLIB="ranlib"
-export PATH="/usr/bin:$PATH"
+# Compiler flags
+export CFLAGS="-O2 -fPIC -fno-omit-frame-pointer -Wno-return-local-addr ${CFLAGS:-}"
+export LDFLAGS="-static ${LDFLAGS:-}"
+export CROSS_COMPILE="${CROSS_COMPILE:-}"
+export CC="${CROSS_COMPILE}gcc"
+export AR="${CROSS_COMPILE}ar"
+export RANLIB="${CROSS_COMPILE}ranlib"
+export STRIP="${CROSS_COMPILE}strip"
 
 # Download musl source
 download_musl() {
     log INFO "Downloading musl libc ${MUSL_VERSION}"
     
-    if [ -f "${BUILD_DIR}/musl-${MUSL_VERSION}.tar.gz" ]; then
-        log INFO "musl source already downloaded"
-        return 0
+    cd "${BUILD_DIR}"
+    
+    local archive="musl-${MUSL_VERSION}.tar.gz"
+    
+    # Check if we already have the correct archive
+    if [ -f "${archive}" ]; then
+        if echo "${MUSL_SHA256}  ${archive}" | sha256sum -c - >/dev/null 2>&1; then
+            log INFO "Existing musl archive verified"
+            return 0
+        else
+            log WARN "Existing musl archive is corrupt, re-downloading"
+            rm -f "${archive}"
+        fi
     fi
     
-    ensure_dir "${BUILD_DIR}"
-    cd "${BUILD_DIR}" || return 1
-    
+    # Download and verify
     if ! wget -q --show-progress "${MUSL_URL}"; then
         log ERROR "Failed to download musl source"
         return 1
     fi
     
-    if ! tar xf "musl-${MUSL_VERSION}.tar.gz"; then
+    if ! echo "${MUSL_SHA256}  ${archive}" | sha256sum -c -; then
+        log ERROR "musl source verification failed"
+        rm -f "${archive}"
+        return 1
+    fi
+    
+    # Extract source
+    if [ -d "${SOURCE_DIR}" ]; then
+        rm -rf "${SOURCE_DIR}"
+    fi
+    
+    if ! tar xf "${archive}"; then
         log ERROR "Failed to extract musl source"
         return 1
     fi
     
-    log INFO "Successfully downloaded and extracted musl source"
+    # Set proper permissions on source directory
+    if ! chmod -R u+w "${SOURCE_DIR}"; then
+        log ERROR "Failed to set permissions on source directory"
+        return 1
+    fi
+    
+    log INFO "Successfully downloaded and verified musl source"
+    return 0
 }
 
 # Configure musl build
 configure_musl() {
     log INFO "Configuring musl ${MUSL_VERSION}"
     
-    cd "${BUILD_DIR}/musl-${MUSL_VERSION}" || return 1
+    cd "${SOURCE_DIR}"
     
     # Clean any previous build
-    make clean >/dev/null 2>&1 || true
+    if [ -f "Makefile" ]; then
+        make clean >/dev/null 2>&1 || true
+    fi
     
     # Configure options
     ./configure \
         --prefix=/usr \
         --syslibdir=/lib \
         --target="${TARGET}" \
-        --host="${HOST}" \
-        --build="${BUILD}" \
         --disable-shared \
         --enable-static \
         --enable-wrapper=all \
@@ -74,83 +123,105 @@ configure_musl() {
         LDFLAGS="${LDFLAGS}" \
         AR="${AR}" \
         RANLIB="${RANLIB}" \
-        MAKE_AR="${MAKE_AR}" \
-        MAKE_RANLIB="${MAKE_RANLIB}"
-    
-    if [ $? -ne 0 ]; then
-        log ERROR "musl configuration failed"
-        return 1
-    fi
+        LIBCC="$(${CC} -print-libgcc-file-name)" \
+        || {
+            log ERROR "musl configuration failed"
+            return 1
+        }
     
     log INFO "musl configuration completed"
+    return 0
 }
 
 # Build musl
 build_musl() {
     log INFO "Building musl libc"
     
-    cd "${BUILD_DIR}/musl-${MUSL_VERSION}" || return 1
+    cd "${SOURCE_DIR}"
     
-    if ! make ${MAKEFLAGS}; then
+    # Use all available CPU cores but limit load
+    if ! make -j"${PARALLEL_JOBS}" CFLAGS="${CFLAGS}" LDFLAGS="${LDFLAGS}"; then
         log ERROR "musl build failed"
         return 1
     fi
     
     log INFO "musl build completed"
+    return 0
 }
 
 # Install musl to sysroot
 install_musl() {
     log INFO "Installing musl to sysroot"
     
-    cd "${BUILD_DIR}/musl-${MUSL_VERSION}" || return 1
+    cd "${SOURCE_DIR}"
     
-    # Create sysroot directories
-    mkdir -p "${SYSROOT}/usr/lib"
-    mkdir -p "${SYSROOT}/usr/include"
-    mkdir -p "${SYSROOT}/lib"
+    # Create sysroot directories with proper permissions
+    for dir in "${SYSROOT}/usr/lib" "${SYSROOT}/usr/include" "${SYSROOT}/lib"; do
+        if ! ensure_dir "${dir}"; then
+            log ERROR "Failed to create directory: ${dir}"
+            return 1
+        fi
+        if ! chmod 755 "${dir}"; then
+            log ERROR "Failed to set permissions on ${dir}"
+            return 1
+        fi
+    done
     
     # Install files
-    make DESTDIR="${SYSROOT}" install
+    if ! make DESTDIR="${SYSROOT}" install; then
+        log ERROR "musl installation failed"
+        return 1
+    fi
     
     # Create symlink for dynamic linker
-    ln -sf /usr/lib/libc.so "${SYSROOT}/lib/ld-musl-x86_64.so.1"
+    ln -sf /usr/lib/libc.so "${SYSROOT}/lib/ld-musl-${TARGET_ARCH}.so.1"
     
-    # Copy kernel headers
-    cp -r "${KERNEL_HEADERS}"/* "${SYSROOT}/usr/include/"
+    # Strip debug symbols if not a debug build
+    if [ "${DEBUG_BUILD:-0}" -eq 0 ]; then
+        find "${SYSROOT}" -type f -name "*.so*" -exec "${STRIP}" --strip-debug {} \;
+        find "${SYSROOT}" -type f -name "*.a" -exec "${STRIP}" --strip-debug {} \;
+    fi
     
-    log INFO "musl installation completed"
+    # Set proper permissions on installed files
+    chmod -R u+rw "${SYSROOT}/usr/lib" "${SYSROOT}/usr/include" "${SYSROOT}/lib"
+    
+    # Verify installation
+    if [ ! -f "${SYSROOT}/usr/lib/libc.a" ]; then
+        log ERROR "musl static library not found in sysroot"
+        return 1
+    fi
+    
+    log INFO "musl installation completed successfully"
+    return 0
 }
 
 # Main build process
 main() {
     log INFO "Starting musl libc build process"
     
-    # Check build environment
-    check_build_env || exit 1
-    
     # Build steps
-    if ! download_musl; then
-        log ERROR "Failed to download musl"
-        exit 1
-    fi
+    local steps=(
+        setup_build_dirs
+        download_musl
+        configure_musl
+        build_musl
+        install_musl
+    )
     
-    if ! configure_musl; then
-        log ERROR "Failed to configure musl"
-        exit 1
-    fi
+    local step_count=${#steps[@]}
+    local current_step=1
     
-    if ! build_musl; then
-        log ERROR "Failed to build musl"
-        exit 1
-    fi
-    
-    if ! install_musl; then
-        log ERROR "Failed to install musl"
-        exit 1
-    fi
+    for step in "${steps[@]}"; do
+        log INFO "Step ${current_step}/${step_count}: Running ${step}"
+        if ! ${step}; then
+            log ERROR "Step ${step} failed"
+            return 1
+        fi
+        ((current_step++))
+    done
     
     log INFO "musl libc build process completed successfully"
+    return 0
 }
 
 # Run main if script is executed directly

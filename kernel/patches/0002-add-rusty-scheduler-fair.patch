@@ -1,0 +1,152 @@
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index a7c85e3..b9d4f2a 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -1,3 +1,124 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++#include <linux/sched.h>
++#include <linux/sched/clock.h>
++#include <linux/init_task.h>
++#include <linux/module.h>
++#include <linux/kernel.h>
++#include <linux/cpumask.h>
++#include <linux/smp.h>
++#include <linux/preempt.h>
++#include <linux/sched/rt.h>
++
++#include <linux/sched/rusty.h>
++
++#ifdef CONFIG_SCHED_RUSTY
++
++static void update_curr_rusty(struct rq *rq)
++{
++    struct task_struct *curr = rq->curr;
++    struct sched_rusty_entity *curr_se = &curr->rusty;
++    struct rusty_rq *rusty_rq = &per_cpu(rusty_rq, cpu_of(rq));
++    u64 now = sched_clock();
++    u64 delta_exec;
++
++    raw_spin_lock(&rusty_rq->lock);
++
++    if (curr_se->exec_start == 0)
++        curr_se->exec_start = now;
++
++    delta_exec = now - curr_se->exec_start;
++    curr_se->sum_exec_runtime += delta_exec;
++    curr_se->vruntime += calc_delta_fair(delta_exec, curr_se);
++    curr_se->exec_start = now;
++
++    /* Update the minimum vruntime */
++    if (rusty_rq->min_vruntime == 0 || 
++        curr_se->vruntime < rusty_rq->min_vruntime)
++        rusty_rq->min_vruntime = curr_se->vruntime;
++
++    raw_spin_unlock(&rusty_rq->lock);
++}
++
++static u64 calc_delta_fair(u64 delta, struct sched_rusty_entity *se)
++{
++    u64 local_weight = se->local_prio;
++    u64 global_weight = se->global_prio;
++    u64 weight = (local_weight + global_weight) >> 1;
++
++    if (weight < 1)
++        weight = 1;
++
++    delta = div_u64(delta * NICE_0_LOAD, weight);
++    return delta;
++}
++
++static struct sched_rusty_entity *pick_next_entity_rusty(struct rusty_rq *rusty_rq)
++{
++    struct sched_rusty_entity *left = NULL;
++    struct sched_rusty_entity *right = NULL;
++    struct sched_rusty_entity *next = NULL;
++
++    raw_spin_lock(&rusty_rq->lock);
++
++    if (list_empty(&rusty_rq->queue)) {
++        raw_spin_unlock(&rusty_rq->lock);
++        return NULL;
++    }
++
++    /* Pick the task with the lowest vruntime */
++    list_for_each_entry(next, &rusty_rq->queue, run_list) {
++        if (!left || entity_before(next, left))
++            left = next;
++    }
++
++    raw_spin_unlock(&rusty_rq->lock);
++    return left;
++}
++
++static bool entity_before(struct sched_rusty_entity *a,
++                         struct sched_rusty_entity *b)
++{
++    /* First compare priorities */
++    if (a->prio != b->prio)
++        return a->prio < b->prio;
++
++    /* If priorities are equal, use vruntime */
++    s64 diff = (s64)(a->vruntime - b->vruntime);
++    if (diff > RUSTY_MAX_VRUNTIME_DIFF)
++        return false;
++    if (diff < -RUSTY_MAX_VRUNTIME_DIFF)
++        return true;
++
++    return diff < 0;
++}
++
++static bool needs_resched_rusty(struct sched_rusty_entity *curr_se,
++                               struct rusty_rq *rusty_rq)
++{
++    struct sched_rusty_entity *leftmost;
++    u64 vruntime_diff;
++    bool needs_resched = false;
++
++    raw_spin_lock(&rusty_rq->lock);
++
++    if (rusty_rq->nr_running <= 1)
++        goto unlock;
++
++    leftmost = pick_next_entity_rusty(rusty_rq);
++    if (!leftmost)
++        goto unlock;
++
++    /* Check if current task has run too long */
++    vruntime_diff = curr_se->vruntime - leftmost->vruntime;
++    if (vruntime_diff > RUSTY_MAX_VRUNTIME_DIFF)
++        needs_resched = true;
++
++    /* Check if priorities differ significantly */
++    if (curr_se->prio - leftmost->prio > RUSTY_PRIO_DIFF_THRESHOLD)
++        needs_resched = true;
++
++unlock:
++    raw_spin_unlock(&rusty_rq->lock);
++    return needs_resched;
++}
++
++static void set_next_entity_rusty(struct rusty_rq *rusty_rq,
++                                 struct sched_rusty_entity *se)
++{
++    raw_spin_lock(&rusty_rq->lock);
++
++    /* Update the entity's runtime statistics */
++    if (se->exec_start) {
++        u64 delta_exec = sched_clock() - se->exec_start;
++        se->sum_exec_runtime += delta_exec;
++        se->exec_start = sched_clock();
++    }
++
++    /* Ensure vruntime doesn't fall behind min_vruntime */
++    if (se->vruntime < rusty_rq->min_vruntime)
++        se->vruntime = rusty_rq->min_vruntime;
++
++    /* Move to the back of the run queue */
++    list_move_tail(&se->run_list, &rusty_rq->queue);
++
++    raw_spin_unlock(&rusty_rq->lock);
++}
++
++#endif /* CONFIG_SCHED_RUSTY */
