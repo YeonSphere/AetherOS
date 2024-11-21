@@ -2,21 +2,40 @@
 
 # Common functions for AetherOS scripts
 
+# Base paths
+export AETHER_ROOT="/home/dae/YeonSphere/AetherOS"
+export BUILD_ROOT="${AETHER_ROOT}/build"
+export SYSROOT="${BUILD_ROOT}/sysroot"
+export TOOLS_DIR="${BUILD_ROOT}/tools"
+
+# Build configuration
+export ARCH="x86_64"
+export TARGET="x86_64-aetheros-linux-musl"
+export HOST="$(gcc -dumpmachine)"
+export BUILD="$(gcc -dumpmachine)"
+export CROSS_COMPILE=""  # Will be set if cross-compiling
+export MAKEFLAGS="-j$(nproc)"
+
+# Kernel paths
+export KERNEL_VERSION="6.11.9"
+export KERNEL_PATH="${BUILD_ROOT}/boot/vmlinuz-${KERNEL_VERSION}-aetheros"
+export KERNEL_HEADERS="${SYSROOT}/usr/include"
+
 # Logging levels
-LOG_ERROR=0
-LOG_WARN=1
-LOG_INFO=2
-LOG_DEBUG=3
+export LOG_ERROR=0
+export LOG_WARN=1
+export LOG_INFO=2
+export LOG_DEBUG=3
 
 # Default log level
-VERBOSE=${VERBOSE:-1}
+export VERBOSE=${VERBOSE:-2}  # Set to INFO by default
 
 # Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+export RED='\033[0;31m'
+export GREEN='\033[0;32m'
+export YELLOW='\033[1;33m'
+export BLUE='\033[0;34m'
+export NC='\033[0m'
 
 # Logging function
 log() {
@@ -42,48 +61,13 @@ log() {
     esac
 }
 
-# Check if running as root
-check_root() {
-    if [[ $EUID -ne 0 ]]; then
-        log ERROR "This script must be run as root"
-        exit 1
-    fi
+# Cleanup function
+cleanup() {
+    log DEBUG "Cleaning up..."
+    # Add cleanup tasks here
 }
 
-# Check system requirements
-check_system() {
-    local min_ram=4  # GB
-    local min_cores=2
-    local min_disk=20  # GB
-    
-    # Check RAM
-    local total_ram
-    total_ram=$(awk '/MemTotal/ {print $2/1024/1024}' /proc/meminfo)
-    if (( $(echo "$total_ram < $min_ram" | bc -l) )); then
-        log WARN "Insufficient RAM: ${total_ram}GB (minimum ${min_ram}GB recommended)"
-        return 1
-    fi
-    
-    # Check CPU cores
-    local cpu_cores
-    cpu_cores=$(nproc)
-    if [ "$cpu_cores" -lt "$min_cores" ]; then
-        log WARN "Insufficient CPU cores: ${cpu_cores} (minimum ${min_cores} recommended)"
-        return 1
-    fi
-    
-    # Check disk space
-    local free_space
-    free_space=$(df -BG "$(pwd)" | awk 'NR==2 {print $4}' | sed 's/G//')
-    if [ "$free_space" -lt "$min_disk" ]; then
-        log WARN "Insufficient disk space: ${free_space}GB (minimum ${min_disk}GB recommended)"
-        return 1
-    fi
-    
-    return 0
-}
-
-# Create directory if it doesn't exist
+# Utility functions
 ensure_dir() {
     local dir=$1
     if [ ! -d "$dir" ]; then
@@ -91,32 +75,26 @@ ensure_dir() {
     fi
 }
 
-# Check if a command exists
 command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-# Check if a package is installed
 package_installed() {
     if command_exists dpkg; then
         dpkg -l "$1" >/dev/null 2>&1
-    elif command_exists pacman; then
-        pacman -Qi "$1" >/dev/null 2>&1
+    elif command_exists rpm; then
+        rpm -q "$1" >/dev/null 2>&1
     else
-        log ERROR "Unknown package manager"
         return 1
     fi
 }
 
-# Get CPU architecture
 get_arch() {
     uname -m
 }
 
-# Get OS distribution
 get_distro() {
     if [ -f /etc/os-release ]; then
-        # shellcheck disable=SC1091
         . /etc/os-release
         echo "$ID"
     else
@@ -124,24 +102,79 @@ get_distro() {
     fi
 }
 
-# Get kernel version
 get_kernel_version() {
     uname -r
 }
 
-# Check if systemd is being used
 using_systemd() {
-    [ "$(ps --no-headers -o comm 1)" = "systemd" ]
+    [ -d /run/systemd/system ]
 }
 
-# Cleanup function
-cleanup() {
-    # Add cleanup tasks here
-    log DEBUG "Cleaning up..."
+# Check if running as root
+check_root() {
+    if [ "$(id -u)" != "0" ]; then
+        log ERROR "This script must be run as root"
+        return 1
+    fi
 }
 
-# Set cleanup trap
-trap cleanup EXIT
+# Check system requirements
+check_system() {
+    local required_commands=(
+        "gcc"
+        "make"
+        "wget"
+        "tar"
+        "patch"
+        "ld"
+        "ar"
+        "as"
+    )
+    
+    # Check if we're on Arch Linux
+    if [ "$(get_distro)" != "arch" ]; then
+        log WARN "This build system is optimized for Arch Linux"
+    fi
+    
+    # Check for required commands
+    for cmd in "${required_commands[@]}"; do
+        if ! command_exists "$cmd"; then
+            log ERROR "Required command not found: $cmd. Please install base-devel package group."
+            return 1
+        fi
+    done
+    
+    # Check for kernel headers
+    if [ ! -f "${KERNEL_PATH}" ]; then
+        log ERROR "Kernel not found at ${KERNEL_PATH}. Please build the kernel first."
+        return 1
+    fi
+    
+    # Set compilation environment
+    export CROSS_COMPILE=""
+    export CC="gcc"
+    export CXX="g++"
+    export LD="ld"
+    export AR="ar"
+    export AS="as"
+    
+    return 0
+}
+
+# Check build environment
+check_build_env() {
+    # Check system requirements
+    if ! check_system; then
+        return 1
+    fi
+    
+    # Check directories
+    ensure_dir "$BUILD_ROOT"
+    ensure_dir "$SYSROOT"
+    ensure_dir "$TOOLS_DIR"
+    
+    return 0
+}
 
 # Export functions
 export -f log
@@ -154,3 +187,7 @@ export -f get_arch
 export -f get_distro
 export -f get_kernel_version
 export -f using_systemd
+export -f check_build_env
+
+# Set up cleanup trap
+trap cleanup EXIT
