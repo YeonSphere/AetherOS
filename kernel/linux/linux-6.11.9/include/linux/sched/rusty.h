@@ -19,12 +19,44 @@ struct sched_rusty_entity {
     int normal_prio;
 };
 
+/* Rusty run queue */
+struct rusty_rq {
+    struct list_head queue;
+    unsigned int nr_running;
+    u64 min_vruntime;
+    raw_spinlock_t lock;
+    
+    /* Load balancing */
+    unsigned long nr_migrations_in;
+    unsigned long nr_migrations_out;
+    
+    /* Statistics */
+    u64 exec_clock;
+    u64 wait_runtime;
+    
+    /* RT bandwidth enforcement */
+    struct rt_bandwidth rt_bandwidth;
+    
+    /* CPU selection */
+    int cpu;
+    int online;
+    
+    /* Task group support */
+    struct task_group *tg;
+    
+    /* Priority management */
+    int local_prio;
+    int global_prio;
+};
+
 /* Forward declarations */
 extern const struct sched_class rusty_sched_class;
 
 /* Rusty scheduler functions */
 extern void init_rusty_rq(struct rusty_rq *rusty_rq);
 extern void update_curr_rusty(struct rq *rq);
+extern void update_min_vruntime(struct rusty_rq *rusty_rq);
+extern u64 calc_delta_fair(u64 delta, struct task_struct *p);
 
 /* Helper functions */
 static inline bool entity_before(struct sched_rusty_entity *a,

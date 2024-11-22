@@ -737,8 +737,14 @@ void __init acpi_reserve_initial_tables(void)
 		if (!start || !size)
 			break;
 
-		pr_info("Reserving %4s table memory at [mem 0x%llx-0x%llx]\n",
-			table_desc->signature.ascii, start, start + size - 1);
+		/* Special handling for FACS table */
+		if (strncmp(table_desc->signature.ascii, ACPI_SIG_FACS, 4) == 0) {
+			pr_info("Reserving FACS table memory at [mem 0x%llx-0x%llx]\n",
+				start, start + size - 1);
+		} else {
+			pr_info("Reserving %4s table memory at [mem 0x%llx-0x%llx]\n",
+				table_desc->signature.ascii, start, start + size - 1);
+		}
 
 		memblock_reserve(start, size);
 	}

@@ -92,6 +92,14 @@ $(OUTPUT)bpf_exp.lex.c: $(OUTPUT)bpf_exp.yacc.c
 $(OUTPUT)bpf_exp.yacc.o: $(OUTPUT)bpf_exp.yacc.c
 $(OUTPUT)bpf_exp.lex.o: $(OUTPUT)bpf_exp.lex.c
 
+# Rusty Scheduler BPF tuning tools
+RUSTY_TUNE_SRCS := rusty_tune.c
+RUSTY_TUNE_TARGET := rusty_tune
+RUSTY_TUNE_BPF_SRCS := rusty_tune.bpf.c
+
+$(RUSTY_TUNE_TARGET): $(RUSTY_TUNE_SRCS) $(RUSTY_TUNE_BPF_SRCS)
+	$(CLANG) $(CFLAGS) $(RUSTY_TUNE_SRCS) -lbpf -o $(RUSTY_TUNE_TARGET)
+
 clean: bpftool_clean runqslower_clean resolve_btfids_clean
 	$(call QUIET_CLEAN, bpf-progs)
 	$(Q)$(RM) -r -- $(OUTPUT)*.o $(OUTPUT)bpf_jit_disasm $(OUTPUT)bpf_dbg \
@@ -99,6 +107,7 @@ clean: bpftool_clean runqslower_clean resolve_btfids_clean
 	$(call QUIET_CLEAN, core-gen)
 	$(Q)$(RM) -- $(OUTPUT)FEATURE-DUMP.bpf
 	$(Q)$(RM) -r -- $(OUTPUT)feature
+	rm -f $(RUSTY_TUNE_TARGET)
 
 install: $(PROGS) bpftool_install
 	$(call QUIET_INSTALL, bpf_jit_disasm)

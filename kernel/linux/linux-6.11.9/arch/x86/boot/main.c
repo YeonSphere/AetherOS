@@ -139,8 +139,10 @@ void main(void)
 
 	/* Initialize the early-boot console */
 	console_init();
-	if (cmdline_find_option_bool("debug"))
-		puts("early console in setup code\n");
+	if (cmdline_find_option_bool("debug")) {
+		char *msg = "Early console in setup code\n";
+		puts(msg);
+	}
 
 	/* End of heap check */
 	init_heap();

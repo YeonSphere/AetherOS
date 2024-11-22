@@ -1,0 +1,13 @@
+[Unit]
+Description=AetherOS Boot Hardware Detection
+DefaultDependencies=no
+Before=sysinit.target
+After=systemd-modules-load.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/aetheros/boot_hardware_detect.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target

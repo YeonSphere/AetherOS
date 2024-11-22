@@ -3,7 +3,7 @@
 !/build/boot/
 !/build/boot/vmlinuz
 !/build/initramfs.cpio.gz
-
+/rootfs/
 # BusyBox
 /build/busybox/*
 !/build/busybox/busybox-1.36.1/.config
@@ -27,7 +27,7 @@ tmp/
 *.swp
 *.swo
 *~
-
+/logs/
 # IDE and editor files
 .idea/
 .vscode/

@@ -1,221 +1,41 @@
 #!/bin/bash
+# Common functions for AetherOS build system
 
-# Common functions for AetherOS scripts
-
-# Determine script paths
-COMMON_SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
-export AETHER_ROOT="$(readlink -f "${COMMON_SCRIPT_DIR}/..")"
-export BUILD_ROOT="${AETHER_ROOT}/build"
-export SYSROOT="${BUILD_ROOT}/sysroot"
-export TOOLS_DIR="${BUILD_ROOT}/tools"
-
-# Build configuration
-export ARCH="x86_64"
-export TARGET="x86_64-aetheros-linux-musl"
-export HOST="$(gcc -dumpmachine)"
-export BUILD="$(gcc -dumpmachine)"
-export CROSS_COMPILE=""  # Will be set if cross-compiling
-export MAKEFLAGS="-j$(nproc)"
-
-# Kernel paths
-export KERNEL_VERSION="6.11.9"
-export KERNEL_PATH="${BUILD_ROOT}/boot/vmlinuz-${KERNEL_VERSION}-aetheros"
-export KERNEL_HEADERS="${SYSROOT}/usr/include"
-
-# Logging levels
-export LOG_ERROR=0
-export LOG_WARN=1
-export LOG_INFO=2
-export LOG_DEBUG=3
-
-# Default log level
-export VERBOSE=${VERBOSE:-2}  # Set to INFO by default
-
-# Colors
-export RED='\033[0;31m'
-export GREEN='\033[0;32m'
-export YELLOW='\033[1;33m'
-export BLUE='\033[0;34m'
-export NC='\033[0m'
-
-# Logging function
 log() {
-    local level=$1
+    local level="$1"
     shift
-    local message=$*
-    local timestamp
-    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    
-    case $level in
-        ERROR)
-            [[ $VERBOSE -ge $LOG_ERROR ]] && echo -e "${timestamp} ${RED}[ERROR]${NC} $message" >&2
-            return 1
-            ;;
-        WARN)
-            [[ $VERBOSE -ge $LOG_WARN ]] && echo -e "${timestamp} ${YELLOW}[WARN]${NC} $message"
-            return 0
-            ;;
-        INFO)
-            [[ $VERBOSE -ge $LOG_INFO ]] && echo -e "${timestamp} ${GREEN}[INFO]${NC} $message"
-            return 0
-            ;;
-        DEBUG)
-            [[ $VERBOSE -ge $LOG_DEBUG ]] && echo -e "${timestamp} ${BLUE}[DEBUG]${NC} $message"
-            return 0
-            ;;
-    esac
+    echo "[$level] $*" >&2
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$level] $*" >> "$BUILD_LOG"
 }
 
-# Cleanup function
-cleanup() {
-    log DEBUG "Cleaning up..."
-    # Add cleanup tasks here
+error() {
+    log "ERROR" "$@"
+    exit 1
 }
 
-# Utility functions
-ensure_dir() {
-    local dir=$1
-    if [ ! -d "$dir" ]; then
-        mkdir -p "$dir" || {
-            log ERROR "Failed to create directory: $dir"
-            return 1
-        }
-    fi
-    return 0
-}
-
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
-}
-
-package_installed() {
-    if command_exists dpkg; then
-        dpkg -l "$1" >/dev/null 2>&1
-    elif command_exists rpm; then
-        rpm -q "$1" >/dev/null 2>&1
-    else
-        return 1
-    fi
-}
-
-get_arch() {
-    uname -m
-}
-
-get_distro() {
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        echo "$ID"
-    else
-        echo "unknown"
-    fi
-}
-
-get_kernel_version() {
-    uname -r
-}
-
-using_systemd() {
-    [ -d "/run/systemd/system" ]
-}
-
-# Check if running as root
-check_root() {
-    if [ "$(id -u)" -eq 0 ]; then
-        return 0
-    fi
-    return 1
-}
-
-# Check system requirements
-check_system() {
-    local required_commands=(
-        "gcc"
-        "make"
-        "wget"
-        "tar"
-        "patch"
-        "ld"
-        "ar"
-        "as"
+check_dependencies() {
+    local bins=(
+        make gcc g++ flex bison bc rsync cpio
+        grub-install xorriso mkinitcpio pacstrap
+    )
+    local pkgs=(
+        elfutils openssl grub efibootmgr
+        arch-install-scripts
     )
     
-    # Check if we're on Arch Linux
-    if [ "$(get_distro)" != "arch" ]; then
-        log WARN "This build system is optimized for Arch Linux"
-    fi
+    log "INFO" "Checking build dependencies..."
     
-    # Check for required commands
-    for cmd in "${required_commands[@]}"; do
-        if ! command_exists "$cmd"; then
-            log ERROR "Required command not found: $cmd. Please install base-devel package group."
-            return 1
+    # Check binary dependencies
+    for bin in "${bins[@]}"; do
+        if ! command -v "$bin" >/dev/null 2>&1; then
+            error "Missing binary dependency: $bin"
         fi
     done
     
-    # Set compilation environment
-    export CROSS_COMPILE=""
-    export CC="gcc"
-    export CXX="g++"
-    export LD="ld"
-    export AR="ar"
-    export AS="as"
-    
-    return 0
+    # Check package dependencies
+    for pkg in "${pkgs[@]}"; do
+        if ! pacman -Qi "$pkg" >/dev/null 2>&1; then
+            error "Missing package dependency: $pkg"
+        fi
+    done
 }
-
-# Check build environment
-check_build_env() {
-    # Check system requirements
-    if ! check_system; then
-        log ERROR "System requirements check failed"
-        return 1
-    fi
-    
-    # Check for root privileges
-    if ! check_root; then
-        log ERROR "Root privileges required"
-        return 1
-    fi
-    
-    # Check for systemd (needed for systemd-run)
-    if ! using_systemd; then
-        log ERROR "systemd is required for build process"
-        return 1
-    fi
-    
-    # Check directories
-    if ! ensure_dir "$BUILD_ROOT"; then
-        log ERROR "Failed to create build root directory"
-        return 1
-    fi
-    
-    if ! ensure_dir "$SYSROOT"; then
-        log ERROR "Failed to create sysroot directory"
-        return 1
-    fi
-    
-    if ! ensure_dir "$TOOLS_DIR"; then
-        log ERROR "Failed to create tools directory"
-        return 1
-    fi
-    
-    log INFO "Build environment check completed successfully"
-    return 0
-}
-
-# Export functions
-export -f log
-export -f check_root
-export -f check_system
-export -f ensure_dir
-export -f command_exists
-export -f package_installed
-export -f get_arch
-export -f get_distro
-export -f get_kernel_version
-export -f using_systemd
-export -f check_build_env
-
-# Set up cleanup trap
-trap cleanup EXIT
