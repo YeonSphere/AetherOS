@@ -1,9 +1,0 @@
-[0;34mAetherOS Build System[0m
--------------------------
-[0;32mBuilding AetherOS kernel...[0m
-[0;32mConfiguring kernel for AetherOS...[0m
-[0;32mBuilding kernel with optimizations...[0m
-  SYNC    include/config/auto.conf
-mkdir -p /home/dae/YeonSphere/AetherOS/kernel/linux/linux-6.11.9/tools/objtool && make O=/home/dae/YeonSphere/AetherOS/kernel/linux/linux-6.11.9 subdir=tools/objtool --no-print-directory -C objtool 
-  HOSTCC  scripts/mod/file2alias.o
-  INSTALL libsubcmd_headers

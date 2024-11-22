@@ -3,7 +3,7 @@ name = "aetheros"
 version = "0.1.0"
 edition = "2021"
 authors = ["AetherOS Team"]
-description = "High-performance, minimalist microkernel with Linux driver compatibility"
+description = "High-performance microkernel-based operating system"
 
 [lib]
 name = "aetheros"
@@ -14,6 +14,11 @@ spin = "0.9"
 bitflags = "2.4"
 volatile = "0.4"
 x86_64 = "0.14"
+acpi = "4.1"
+lru = "0.12"
+hashbrown = { version = "0.14", default-features = false }
+crossbeam-queue = { version = "0.3", default-features = false, features = ["alloc"] }
+lock_api = { version = "0.4", default-features = false }
 uart_16550 = "0.3"
 pic8259 = "0.10"
 pc-keyboard = "0.7"
@@ -27,18 +32,43 @@ lazy_static = "1.4"
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 x86 = "0.52"
-acpi = "5.0"
 aml = "0.16"
 
 [profile.release]
 opt-level = 3
-lto = true
+lto = "fat"
 codegen-units = 1
 panic = "abort"
 debug = false
 strip = true
+incremental = false
 overflow-checks = false
 
 [profile.dev]
 opt-level = 1
 debug = true
+
+[features]
+default = ["performance"]
+performance = []
+debug = ["print-trace", "memory-trace"]
+print-trace = []
+memory-trace = []
+
+[build]
+target = "x86_64-unknown-none"
+rustflags = [
+    "-C", "target-cpu=native",
+    "-C", "link-arg=-nostartfiles",
+    "-C", "link-arg=-static",
+    "-C", "link-arg=-Wl,--gc-sections",
+    "-C", "force-frame-pointers=yes",
+]
+
+[workspace]
+members = [
+    "kernel",
+    "drivers",
+    "services",
+    "userspace",
+]

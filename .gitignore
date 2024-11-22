@@ -1,65 +1,67 @@
-# Build directories
-/build/*
-!/build/boot/
-!/build/boot/vmlinuz
-!/build/initramfs.cpio.gz
-/rootfs/
-# BusyBox
-/build/busybox/*
-!/build/busybox/busybox-1.36.1/.config
+# Build output
+/target/
+/build/
+/iso/
+/output/
 
-# ISO and disk images
-*.iso
-*.img
-*.vdi
-*.vmdk
-*.qcow2
-
-# Temporary files
-*.o
-*.ko
-*.obj
-*.elf
-*.tmp
-*.temp
-.temp/
-tmp/
+# Backup files
+/backups/
+*.bak
+*~
 *.swp
 *.swo
-*~
+
+# Log files
 /logs/
-# IDE and editor files
-.idea/
-.vscode/
-*.sublime-*
+*.log
+log.txt
+
+# OS-specific files
 .DS_Store
 Thumbs.db
 
-# Logs and debugging
-*.log
-debug/
-*.debug
-*.symbols
+# IDE and editor files
+.idea/
+.vscode/
+*.sublime-workspace
+*.sublime-project
 
-# Dependencies and external tools
-/tools/downloads/
-/tools/cache/
+# Rust-specific
+Cargo.lock
+**/*.rs.bk
+
+# Temporary files
+*.tmp
+*.temp
+.*.kate-swp
 
 # Generated documentation
-/docs/generated/
-/docs/api/
+/doc/
+/target/doc/
 
 # Test artifacts
-/tests/tmp/
-/tests/results/
+*.profraw
+/coverage/
 
-# Local development files
-.env*
-*.local
-.history/
+# Build scripts output
+*.o
+*.bin
+*.iso
+*.img
 
-# Backup files
-*.bak
-*.backup
-*.old
-.git-old/
+# Patch files backup
+*.patch.bak
+*.patch~
+.*.patch.swp
+
+# Configuration backups
+/configs/backup/
+*.conf.bak
+
+# Runtime files
+*.pid
+*.sock
+
+# Debug files
+*.debug
+core.*

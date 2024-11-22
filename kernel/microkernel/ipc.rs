@@ -1,155 +1,183 @@
-//! AetherOS Microkernel IPC System
-//! High-performance, zero-copy message passing
+//! AetherOS IPC System
+//! Zero-copy, low-latency IPC implementation
 
-use alloc::vec::Vec;
+use alloc::collections::{BTreeMap, VecDeque};
 use core::sync::atomic::{AtomicU64, Ordering};
-use spin::Mutex;
+use spin::RwLock;
 
-/// Message types for IPC
+/// Message types
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum MessageType {
-    Synchronous,
-    Asynchronous,
-    SharedMemory,
-    Interrupt,
-    Signal,
+    Signal,     // Lightweight signal
+    Data,       // Regular data message
+    SharedMem,  // Shared memory region
+    Stream,     // Continuous data stream
 }
 
-/// IPC message structure
-#[repr(C)]
+#[derive(Debug)]
 pub struct Message {
     id: MessageId,
     typ: MessageType,
     sender: TaskId,
     receiver: TaskId,
-    payload: MessagePayload,
-}
-
-/// Zero-copy message payload
-#[repr(C)]
-pub union MessagePayload {
-    data: [u8; 64],          // Small messages
-    shared_mem: SharedMemRef, // Larger messages via shared memory
-}
-
-/// Shared memory reference
-#[repr(C)]
-pub struct SharedMemRef {
-    addr: *mut u8,
+    data: Option<*const u8>,
     size: usize,
+    flags: MessageFlags,
 }
 
-/// Message queue implementation
+#[derive(Debug, Clone, Copy)]
+pub struct MessageFlags {
+    priority: u8,
+    nonblocking: bool,
+    zero_copy: bool,
+}
+
+#[derive(Debug)]
 pub struct MessageQueue {
-    messages: Vec<Message>,
-    max_size: usize,
-    lock: Mutex<()>,
+    capacity: usize,
+    queues: BTreeMap<TaskId, VecDeque<Message>>,
+    shared_buffers: BTreeMap<MessageId, SharedBuffer>,
+    lock: RwLock<()>,
+    stats: IPCStats,
+}
+
+#[derive(Debug)]
+struct SharedBuffer {
+    data: *mut u8,
+    size: usize,
+    refcount: AtomicU64,
+}
+
+#[derive(Debug)]
+struct IPCStats {
+    messages_sent: AtomicU64,
+    messages_received: AtomicU64,
+    total_bytes: AtomicU64,
 }
 
 impl MessageQueue {
-    /// Create new message queue
-    pub const fn new(max_size: usize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         Self {
-            messages: Vec::new(),
-            max_size,
-            lock: Mutex::new(()),
+            capacity,
+            queues: BTreeMap::new(),
+            shared_buffers: BTreeMap::new(),
+            lock: RwLock::new(()),
+            stats: IPCStats {
+                messages_sent: AtomicU64::new(0),
+                messages_received: AtomicU64::new(0),
+                total_bytes: AtomicU64::new(0),
+            },
         }
     }
 
-    /// Send message with timeout
-    pub fn send(&mut self, msg: Message, timeout_us: u64) -> Result<(), Error> {
-        let _guard = self.lock.lock();
-        
-        if self.messages.len() >= self.max_size {
+    #[inline(always)]
+    pub fn send(&mut self, msg: Message) -> Result<(), Error> {
+        let _guard = self.lock.write();
+
+        // Fast path for signals
+        if msg.typ == MessageType::Signal {
+            return self.send_signal(msg);
+        }
+
+        // Check queue capacity
+        let queue = self.queues.entry(msg.receiver).or_insert_with(VecDeque::new);
+        if queue.len() >= self.capacity && !msg.flags.nonblocking {
             return Err(Error::QueueFull);
         }
 
-        // Fast path for small messages
-        if msg.payload.size() <= 64 {
-            self.messages.push(msg);
-            return Ok(());
+        // Handle zero-copy transfer
+        if msg.flags.zero_copy {
+            if let Some(data) = msg.data {
+                let shared_buf = SharedBuffer {
+                    data: data as *mut u8,
+                    size: msg.size,
+                    refcount: AtomicU64::new(1),
+                };
+                self.shared_buffers.insert(msg.id, shared_buf);
+            }
         }
 
-        // Use shared memory for large messages
-        let shared_mem = self.allocate_shared_memory(msg.payload.size())?;
-        unsafe {
-            core::ptr::copy_nonoverlapping(
-                msg.payload.data.as_ptr(),
-                shared_mem.addr,
-                msg.payload.size(),
-            );
-        }
+        // Update stats
+        self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
+        self.stats.total_bytes.fetch_add(msg.size as u64, Ordering::Relaxed);
 
-        self.messages.push(Message {
-            payload: MessagePayload { shared_mem },
-            ..msg
-        });
-
+        queue.push_back(msg);
         Ok(())
     }
 
-    /// Receive message with timeout
-    pub fn receive(&mut self, timeout_us: u64) -> Result<Message, Error> {
-        let _guard = self.lock.lock();
-        
-        match self.messages.pop() {
-            Some(msg) => {
-                // Clean up shared memory if used
-                if let MessagePayload::SharedMemRef(ref mem) = msg.payload {
-                    self.deallocate_shared_memory(mem);
+    #[inline(always)]
+    pub fn receive(&mut self, timeout: u64) -> Result<Message, Error> {
+        let _guard = self.lock.write();
+
+        let task_id = get_current_task();
+        let queue = self.queues.get_mut(&task_id).ok_or(Error::NoMessages)?;
+
+        // Try to get a message
+        if let Some(msg) = queue.pop_front() {
+            // Handle zero-copy cleanup
+            if msg.flags.zero_copy {
+                if let Some(buf) = self.shared_buffers.get(&msg.id) {
+                    if buf.refcount.fetch_sub(1, Ordering::Release) == 1 {
+                        // Last reference, clean up
+                        self.shared_buffers.remove(&msg.id);
+                    }
                 }
-                Ok(msg)
             }
-            None => Err(Error::NoMessage),
+
+            // Update stats
+            self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
+            
+            Ok(msg)
+        } else if timeout == 0 {
+            Err(Error::NoMessages)
+        } else {
+            // Wait for message with timeout
+            self.wait_for_message(timeout)
         }
     }
 
-    /// Allocate shared memory for large messages
-    fn allocate_shared_memory(&self, size: usize) -> Result<SharedMemRef, Error> {
-        // Align size to page boundary
-        let aligned_size = (size + 4095) & !4095;
-        
-        // Allocate memory
-        let addr = unsafe {
-            alloc::alloc::alloc(
-                alloc::alloc::Layout::from_size_align(
-                    aligned_size,
-                    4096,
-                ).unwrap(),
-            )
-        };
-
-        if addr.is_null() {
-            return Err(Error::OutOfMemory);
-        }
-
-        Ok(SharedMemRef {
-            addr,
-            size: aligned_size,
-        })
+    #[inline(always)]
+    fn send_signal(&mut self, msg: Message) -> Result<(), Error> {
+        let queue = self.queues.entry(msg.receiver).or_insert_with(VecDeque::new);
+        queue.push_front(msg);  // Signals get priority
+        self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
+        Ok(())
     }
 
-    /// Deallocate shared memory
-    fn deallocate_shared_memory(&self, mem: &SharedMemRef) {
-        unsafe {
-            alloc::alloc::dealloc(
-                mem.addr,
-                alloc::alloc::Layout::from_size_align(
-                    mem.size,
-                    4096,
-                ).unwrap(),
-            );
+    fn wait_for_message(&self, timeout: u64) -> Result<Message, Error> {
+        let start = get_current_time();
+        while get_current_time() - start < timeout {
+            if let Some(msg) = self.try_receive() {
+                return Ok(msg);
+            }
+            cpu_relax();
         }
+        Err(Error::Timeout)
+    }
+
+    #[inline(always)]
+    fn try_receive(&self) -> Option<Message> {
+        let task_id = get_current_task();
+        self.queues.get(&task_id)?.front().cloned()
     }
 }
 
-/// Error types for IPC operations
+// Error types
 #[derive(Debug)]
 pub enum Error {
     QueueFull,
-    NoMessage,
+    NoMessages,
+    InvalidReceiver,
     Timeout,
-    OutOfMemory,
-    InvalidMessage,
+    ZeroCopyFailed,
+}
+
+// Helper functions
+#[inline(always)]
+fn cpu_relax() {
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        core::arch::asm!("pause");
+    }
 }
