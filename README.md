@@ -92,4 +92,15 @@ This project is currently in early development.
 
 ## License
 
-[License details to be determined]
+This project is licensed under the YeonSphere Universal Open Source License (YUOSL). Key points:
+- Free for personal use
+- Commercial terms negotiable
+- 30-day response window for inquiries
+- Contact @daedaevibin for commercial licensing
+- See the [LICENSE](LICENSE) file for full details
+
+## Contact
+
+- Primary Contact: Jeremy Matlock (@daedaevibin)
+- Discord: [Join our community](https://discord.gg/yeonsphere)
+- Email: daedaevibin@naver.com
