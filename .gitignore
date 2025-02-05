@@ -66,4 +66,3 @@ Cargo.lock
 *.debug
 core.*
 
-/linux-*
