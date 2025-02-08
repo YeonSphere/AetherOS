@@ -1,0 +1,40 @@
+# Nexus Browser Codeowners
+
+# Global owners (These users will be the default owners for everything in the repo)
+* @daedaevibin @YeonSphere
+
+# Specific file owners
+/LICENSE
+/README.md
+/CONTRIBUTING.md
+/CHANGELOG.md
+
+# Frontend directory
+/frontend/
+
+# Backend directory (if applicable)
+/backend/
+
+# Configuration files
+*.toml
+*.yaml
+*.json
+.env
+.gitignore
+
+# Tests directory
+/tests/
+
+# Documentation
+/docs/
+
+# Build and configuration files
+*.toml
+*.yaml
+*.json
+
+# Third-party dependencies
+/vendor/
+
+# CI/CD
+/.github/
