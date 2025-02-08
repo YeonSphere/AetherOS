@@ -4,7 +4,7 @@
  *
  * Copyright (C) 2015 Samsung Electronics
  * Author: Jaewon Kim <jaewon02.kim@samsung.com>
- * Author: Beomho Seo <beomho.seo@samsung.com>
+ * Author: Beomho Seo <beomho.zy@samsung.com>
  */
 
 #ifndef __MAX77843_PRIVATE_H_

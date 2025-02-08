@@ -3,7 +3,7 @@
  * Battery charger driver for RT5033
  *
  * Copyright (C) 2014 Samsung Electronics, Co., Ltd.
- * Author: Beomho Seo <beomho.seo@samsung.com>
+ * Author: Beomho Seo <beomho.zy@samsung.com>
  */
 
 #include <linux/devm-helpers.h>
@@ -746,5 +746,5 @@ static struct platform_driver rt5033_charger_driver = {
 module_platform_driver(rt5033_charger_driver);
 
 MODULE_DESCRIPTION("Richtek RT5033 charger driver");
-MODULE_AUTHOR("Beomho Seo <beomho.seo@samsung.com>");
+MODULE_AUTHOR("Beomho Seo <beomho.zy@samsung.com>");
 MODULE_LICENSE("GPL v2");

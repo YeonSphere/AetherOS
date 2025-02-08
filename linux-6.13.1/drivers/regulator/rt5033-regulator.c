@@ -3,7 +3,7 @@
  * Regulator driver for the Richtek RT5033
  *
  * Copyright (C) 2014 Samsung Electronics, Co., Ltd.
- * Author: Beomho Seo <beomho.seo@samsung.com>
+ * Author: Beomho Seo <beomho.zy@samsung.com>
  */
 
 #include <linux/module.h>
@@ -132,5 +132,5 @@ static struct platform_driver rt5033_regulator_driver = {
 module_platform_driver(rt5033_regulator_driver);
 
 MODULE_DESCRIPTION("Richtek RT5033 Regulator driver");
-MODULE_AUTHOR("Beomho Seo <beomho.seo@samsung.com>");
+MODULE_AUTHOR("Beomho Seo <beomho.zy@samsung.com>");
 MODULE_LICENSE("GPL");

@@ -6,7 +6,7 @@
  * flash LED, current source, LDO and BUCK regulators.
  *
  * Copyright (C) 2014 Samsung Electronics, Co., Ltd.
- * Author: Beomho Seo <beomho.seo@samsung.com>
+ * Author: Beomho Seo <beomho.zy@samsung.com>
  */
 
 #include <linux/err.h>
@@ -126,5 +126,5 @@ static struct i2c_driver rt5033_driver = {
 module_i2c_driver(rt5033_driver);
 
 MODULE_DESCRIPTION("Richtek RT5033 multi-function core driver");
-MODULE_AUTHOR("Beomho Seo <beomho.seo@samsung.com>");
+MODULE_AUTHOR("Beomho Seo <beomho.zy@samsung.com>");
 MODULE_LICENSE("GPL");

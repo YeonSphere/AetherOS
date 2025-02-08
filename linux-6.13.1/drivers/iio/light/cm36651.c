@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2013 Samsung Electronics Co., Ltd.
- * Author: Beomho Seo <beomho.seo@samsung.com>
+ * Author: Beomho Seo <beomho.zy@samsung.com>
  */
 
 #include <linux/delay.h>
@@ -737,6 +737,6 @@ static struct i2c_driver cm36651_driver = {
 
 module_i2c_driver(cm36651_driver);
 
-MODULE_AUTHOR("Beomho Seo <beomho.seo@samsung.com>");
+MODULE_AUTHOR("Beomho Seo <beomho.zy@samsung.com>");
 MODULE_DESCRIPTION("CM36651 proximity/ambient light sensor driver");
 MODULE_LICENSE("GPL v2");

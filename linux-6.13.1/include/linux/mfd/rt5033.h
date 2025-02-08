@@ -3,7 +3,7 @@
  * MFD core driver for the RT5033
  *
  * Copyright (C) 2014 Samsung Electronics
- * Author: Beomho Seo <beomho.seo@samsung.com>
+ * Author: Beomho Seo <beomho.zy@samsung.com>
  */
 
 #ifndef __RT5033_H__

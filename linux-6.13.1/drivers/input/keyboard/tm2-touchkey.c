@@ -5,7 +5,7 @@
  * Copyright 2005 Phil Blundell
  * Copyright 2016 Samsung Electronics Co., Ltd.
  *
- * Author: Beomho Seo <beomho.seo@samsung.com>
+ * Author: Beomho Seo <beomho.zy@samsung.com>
  * Author: Jaechul Lee <jcsing.lee@samsung.com>
  */
 
@@ -360,7 +360,7 @@ static struct i2c_driver tm2_touchkey_driver = {
 };
 module_i2c_driver(tm2_touchkey_driver);
 
-MODULE_AUTHOR("Beomho Seo <beomho.seo@samsung.com>");
+MODULE_AUTHOR("Beomho Seo <beomho.zy@samsung.com>");
 MODULE_AUTHOR("Jaechul Lee <jcsing.lee@samsung.com>");
 MODULE_DESCRIPTION("Samsung touchkey driver");
 MODULE_LICENSE("GPL v2");
